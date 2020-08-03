@@ -22,7 +22,6 @@ import pybullet as pyb
 
 from robots import robot_motor
 from robots import quadruped
-from envs import locomotion_gym_config
 
 NUM_MOTORS = 12
 NUM_LEGS = 4
@@ -93,20 +92,7 @@ LOWER_BOUND = -6.28318548203
 class Laikago(quadruped.Quadruped):
   """A simulation for the Laikago robot."""
   
-  ACTION_CONFIG = [
-      locomotion_gym_config.ScalarField(name="motor_angle_0", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_1", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_2", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_3", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_4", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_5", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_6", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_7", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_8", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_9", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_10", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND),
-      locomotion_gym_config.ScalarField(name="motor_angle_11", upper_bound=UPPER_BOUND, lower_bound=LOWER_BOUND)
-  ]
+  ACTION_CONFIG = [[UPPER_BOUND]*12, [LOWER_BOUND]*12]
 
   def __init__(self,
       pybullet_client,

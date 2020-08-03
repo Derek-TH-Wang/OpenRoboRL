@@ -13,9 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A gin-config class for locomotion_gym_env.
-
-This should be identical to locomotion_gym_config.proto.
+"""
+This should be identical to sim_config.proto.
 """
 
 from __future__ import absolute_import
@@ -41,18 +40,3 @@ class SimulationParameters(object):
   render_height = attr.ib(type=int, default=360)
   egl_rendering = attr.ib(type=bool, default=False)
 
-
-@attr.s
-class ScalarField(object):
-  """A named scalar space with bounds."""
-  name = attr.ib(type=str)
-  upper_bound = attr.ib(type=float)
-  lower_bound = attr.ib(type=float)
-
-
-@attr.s
-class LocomotionGymConfig(object):
-  """Grouped Config Parameters for LocomotionGym."""
-  simulation_parameters = attr.ib(type=SimulationParameters)
-  log_path = attr.ib(type=typing.Text, default=None)
-  profiling_path = attr.ib(type=typing.Text, default=None)

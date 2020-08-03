@@ -40,7 +40,7 @@ class LocomotionGymEnv(gym.Env):
   }
 
   def __init__(self,
-               gym_config,
+               sim_config,
                robot_class=None,
                env_sensors=None,
                robot_sensors=None,
@@ -66,7 +66,7 @@ class LocomotionGymEnv(gym.Env):
     """
 
     self.seed()
-    self._gym_config = gym_config
+    self._sim_config = sim_config
     self._robot_class = robot_class
     self._robot_sensors = robot_sensors
 
@@ -85,17 +85,17 @@ class LocomotionGymEnv(gym.Env):
       self._sensors.append(self._task)
 
     # Simulation related parameters.
-    self._num_action_repeat = gym_config.simulation_parameters.num_action_repeat
-    self._on_rack = gym_config.simulation_parameters.robot_on_rack
+    self._num_action_repeat = sim_config.num_action_repeat
+    self._on_rack = sim_config.robot_on_rack
     if self._num_action_repeat < 1:
       raise ValueError('number of action repeats should be at least 1.')
-    self._sim_time_step = gym_config.simulation_parameters.sim_time_step_s
+    self._sim_time_step = sim_config.sim_time_step_s
     self._env_time_step = self._num_action_repeat * self._sim_time_step
     self._env_step_counter = 0
 
     self._num_bullet_solver_iterations = int(_NUM_SIMULATION_ITERATION_STEPS /
                                              self._num_action_repeat)
-    self._is_render = gym_config.simulation_parameters.enable_rendering
+    self._is_render = sim_config.enable_rendering
 
     # The wall-clock time at which the last frame is rendered.
     self._last_frame_time = 0.0
@@ -106,25 +106,22 @@ class LocomotionGymEnv(gym.Env):
           connection_mode=pybullet.GUI)
       pybullet.configureDebugVisualizer(
           pybullet.COV_ENABLE_GUI,
-          gym_config.simulation_parameters.enable_rendering_gui)
+          sim_config.enable_rendering_gui)
       self._show_reference_id = pybullet.addUserDebugParameter("show reference",0,1,
         self._task._draw_ref_model_alpha)
       self._delay_id = pybullet.addUserDebugParameter("delay",0,0.3,0)
     else:
       self._pybullet_client = bullet_client.BulletClient(connection_mode=pybullet.DIRECT)
     self._pybullet_client.setAdditionalSearchPath(pd.getDataPath())
-    if gym_config.simulation_parameters.egl_rendering:
+    if sim_config.egl_rendering:
       self._pybullet_client.loadPlugin('eglRendererPlugin')
 
     # The action list contains the name of all actions.
-    self._action_list = []
     action_upper_bound = []
     action_lower_bound = []
     action_config = robot_class.ACTION_CONFIG
-    for action in action_config:
-      self._action_list.append(action.name)
-      action_upper_bound.append(action.upper_bound)
-      action_lower_bound.append(action.lower_bound)
+    action_upper_bound = action_config[0].copy()
+    action_lower_bound = action_config[1].copy()
 
     self.action_space = spaces.Box(
         np.array(action_lower_bound),
@@ -132,16 +129,16 @@ class LocomotionGymEnv(gym.Env):
         dtype=np.float32)
 
     # Set the default render options.
-    self._camera_dist = gym_config.simulation_parameters.camera_distance
-    self._camera_yaw = gym_config.simulation_parameters.camera_yaw
-    self._camera_pitch = gym_config.simulation_parameters.camera_pitch
-    self._render_width = gym_config.simulation_parameters.render_width
-    self._render_height = gym_config.simulation_parameters.render_height
+    self._camera_dist = sim_config.camera_distance
+    self._camera_yaw = sim_config.camera_yaw
+    self._camera_pitch = sim_config.camera_pitch
+    self._render_width = sim_config.render_width
+    self._render_height = sim_config.render_height
 
     self._hard_reset = True
     self.reset()
 
-    self._hard_reset = gym_config.simulation_parameters.enable_hard_reset
+    self._hard_reset = sim_config.enable_hard_reset
 
     # Construct the observation space from the list of sensors. Note that we
     # will reconstruct the observation_space after the robot is created.
