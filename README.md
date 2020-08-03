@@ -1,4 +1,4 @@
-# Motion Imitation
+# OpenRoboRL
 
 This repository contains code accompanying the paper:
 
@@ -21,17 +21,17 @@ and it should be good to go.
 
 To train a policy, run the following command:
 
-``python3 motion_imitation/run.py --mode train --motion_file motion_imitation/data/motions/dog_pace.txt --int_save_freq 10000000 --visualize``
+``python3 OpenRoboRL/run.py --mode train --motion_file OpenRoboRL/learning/data/motions/dog_pace.txt --int_save_freq 10000000 --visualize``
 
 - `--mode` can be either `train` or `test`.
-- `--motion_file` specifies the reference motion that the robot is to imitate. `motion_imitation/data/motions/` contains different reference motion clips.
+- `--motion_file` specifies the reference motion that the robot is to imitate. `OpenRoboRL/learning/data/motions/` contains different reference motion clips.
 - `--int_save_freq` specifies the frequency for saving intermediate policies every n policy steps.
 - `--visualize` enables visualization, and rendering can be disabled by removing the flag.
 - the trained model and logs will be written to `output/`.
 
 For parallel training with MPI run:
 
-``mpiexec -n 8 python3 motion_imitation/run.py --mode train --motion_file motion_imitation/data/motions/dog_pace.txt --int_save_freq 10000000``
+``mpiexec -n 8 python3 OpenRoboRL/run.py --mode train --motion_file OpenRoboRL/learning/data/motions/dog_pace.txt --int_save_freq 10000000``
 
 - `-n` is the number of parallel.
 
@@ -39,15 +39,15 @@ For parallel training with MPI run:
 
 To test a trained model, run the following command
 
-``python3 motion_imitation/run.py --mode test --motion_file motion_imitation/data/motions/dog_pace.txt --model_file motion_imitation/data/policies/dog_pace.zip --visualize``
+``python3 OpenRoboRL/run.py --mode test --motion_file OpenRoboRL/learning/data/motions/dog_pace.txt --model_file OpenRoboRL/learning/data/policies/dog_pace.zip --visualize``
 
-- `--model_file` specifies the `.zip` file that contains the trained model. Pretrained models are available in `motion_imitation/data/policies/`.
+- `--model_file` specifies the `.zip` file that contains the trained model. Pretrained models are available in `OpenRoboRL/learning/data/policies/`.
 
 
 ## Data
 
-- `motion_imitation/data/motions/` contains different reference motion clips.
-- `motion_imitation/data/policies/` contains pretrained models for the different reference motions.
+- `OpenRoboRL/learning/data/motions/` contains different reference motion clips.
+- `OpenRoboRL/learning/data/policies/` contains pretrained models for the different reference motions.
 
 For more information on the reference motion data format, see the [DeepMimic documentation](https://github.com/xbpeng/DeepMimic)
 
@@ -55,5 +55,3 @@ For more information on the reference motion data format, see the [DeepMimic doc
 
 *Disclaimer: This is not an official Google product.*
 
-# OpenRoboRL
-# OpenRoboRL

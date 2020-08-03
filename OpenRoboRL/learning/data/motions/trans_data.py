@@ -71,7 +71,7 @@ if __name__ == '__main__':
     femur = 0.206
     tibia = 0.185
 
-    with open("/home/derek/RL/algorithm/OpenRoboRL/motion_imitation/data/motions/dog_trot.txt", "r") as f:
+    with open("/home/derek/RL/algorithm/OpenRoboRL/OpenRoboRL/data/motions/dog_trot.txt", "r") as f:
       motion_json = json.load(f)
       dogtrot = numpy.array(motion_json["Frames"])
 

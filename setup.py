@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Setup for motion_imitation package."""
+"""Setup for OpenRoboRL package."""
 
 import setuptools
 
@@ -21,14 +21,14 @@ with open("README.md", "r") as fh:
   long_description = fh.read()
 
 setuptools.setup(
-    name="motion_imitation",
+    name="OpenRoboRL",
     version="0.0.1",
-    author="Google LLC",
-    author_email="xbpeng@google.com",
-    description="A framework for training robots to imitate reference motions.",
+    author="Derek Wang",
+    author_email="416338223@qq.com",
+    description="An open source robot reinforcement learing plantform using stable-baselines and OpenAI Gym.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/google-research/motion_imitation",
+    url="https://github.com/Derek-TH-Wang/OpenRoboRL.git",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 2",

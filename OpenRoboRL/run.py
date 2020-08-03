@@ -132,12 +132,12 @@ def main():
   arg_parser = argparse.ArgumentParser()
   if ROBOT == "xr3":
     arg_parser.add_argument("--robot", dest="robot", type=str, default="xr3")
-    arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="motion_imitation/learning/data/motions/dog_trot_xr3.txt")
-    arg_parser.add_argument("--model_file", dest="model_file", type=str, default="motion_imitation/learning/data/policies/xr3_trot.zip")
+    arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/learning/data/motions/dog_trot_xr3.txt")
+    arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/learning/data/policies/xr3_trot.zip")
     # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
   elif ROBOT == "laikago":
     arg_parser.add_argument("--robot", dest="robot", type=str, default="laikago")
-    arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="motion_imitation/learning/data/motions/dog_trot.txt")
+    arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/learning/data/motions/dog_trot.txt")
     arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
   arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
   arg_parser.add_argument("--mode", dest="mode", type=str, default="train")

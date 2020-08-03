@@ -3,7 +3,7 @@
         {
             "name": "PYTHON",
             "includePath": [
-                "~/RL/algorithm/motion_imitation/**"
+                "~/RL/algorithm/OpenRoboRL/**"
             ]
         }
     ],

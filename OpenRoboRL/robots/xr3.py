@@ -65,8 +65,8 @@ _MOTOR_NAME_PATTERN = re.compile(r"thigh_")
 _KNEE_NAME_PATTERN = re.compile(r"knee_")
 _TOE_NAME_PATTERN = re.compile(r"toe_")
 
-# URDF_FILENAME = "/home/derek/RL/algorithm/OpenRoboRL/motion_imitation/robots/quadruped_robot.urdf"
-URDF_FILENAME = "/home/derek/RL/algorithm/OpenRoboRL/motion_imitation/robots/mini_cheetah.urdf"
+# URDF_FILENAME = "/home/derek/RL/algorithm/OpenRoboRL/OpenRoboRL/robots/quadruped_robot.urdf"
+URDF_FILENAME = "/home/derek/RL/algorithm/OpenRoboRL/OpenRoboRL/robots/mini_cheetah.urdf"
 # URDF_FILENAME = "mini_cheetah/mini_cheetah.urdf"
 # URDF_FILENAME = "laikago/laikago_toes_limits.urdf"
 _BODY_B_FIELD_NUMBER = 2
