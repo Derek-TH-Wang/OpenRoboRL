@@ -21,9 +21,9 @@ import math
 import enum
 import numpy as np
 
-from utilities import pose3d
-from utilities import motion_util
-from pybullet_utils import transformations
+from task import pose3d
+from task import motion_util
+from utils import transformations
 
 
 class LoopMode(enum.Enum):

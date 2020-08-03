@@ -21,9 +21,9 @@ from __future__ import print_function
 
 import numpy as np
 
-from utilities import pose3d
-from utilities import motion_util
-from pybullet_utils import transformations
+from task import pose3d
+from task import motion_util
+from utils import transformations
 
 
 def imitation_terminal_condition(env,

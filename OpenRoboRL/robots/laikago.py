@@ -18,7 +18,7 @@ import math
 import os
 import re
 import numpy as np
-import pybullet as pyb
+from utils import transformations
 
 from robots import robot_motor
 from robots import quadruped
@@ -287,7 +287,7 @@ class Laikago(quadruped.Quadruped):
     # and belly towards y axis. The following transformation is to transform
     # the Laikago initial orientation to our commonly used orientation: heading
     # towards -x direction, and z axis is the up direction.
-    init_orientation = pyb.getQuaternionFromEuler([math.pi / 2.0, 0, math.pi / 2.0])
+    init_orientation = transformations.quaternion_from_euler(math.pi / 2.0, 0, math.pi / 2.0)
     return init_orientation
 
   def GetDefaultInitPosition(self):

@@ -24,10 +24,10 @@ import os
 import numpy as np
 
 from envs.env_wrappers import imitation_terminal_conditions
-from utilities import pose3d
-from utilities import motion_data
-from utilities import motion_util
-from pybullet_utils import transformations
+from task import pose3d
+from task import motion_data
+from task import motion_util
+from utils import transformations
 
 
 class ImitationTask(object):
