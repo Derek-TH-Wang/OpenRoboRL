@@ -24,7 +24,7 @@ from gym import spaces
 import numpy as np
 import typing
 
-from envs.sensors import sensor
+from robots.sensors import sensor
 
 
 class UnsupportedConversionError(Exception):

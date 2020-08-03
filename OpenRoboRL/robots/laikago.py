@@ -22,6 +22,10 @@ import pybullet as pyb
 
 from robots import robot_motor
 from robots import quadruped
+from robots.sensors import environment_sensors
+from robots.sensors import sensor_wrappers
+from robots.sensors import robot_sensors
+
 
 NUM_MOTORS = 12
 NUM_LEGS = 4
@@ -100,7 +104,6 @@ class Laikago(quadruped.Quadruped):
       enable_clip_motor_commands=True,
       time_step=0.001,
       action_repeat=33,
-      sensors=None,
       control_latency=0.002,
       on_rack=False,
       enable_action_interpolation=True,
@@ -109,6 +112,12 @@ class Laikago(quadruped.Quadruped):
     self._urdf_filename = urdf_filename
 
     self._enable_clip_motor_commands = enable_clip_motor_commands
+
+    sensors = [
+      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.MotorAngleSensor(num_motors=NUM_MOTORS), num_history=3),
+      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.IMUSensor(), num_history=3),
+      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=environment_sensors.LastActionSensor(num_actions=NUM_MOTORS), num_history=3)
+    ]
 
     motor_kp = [ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,
                 ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,

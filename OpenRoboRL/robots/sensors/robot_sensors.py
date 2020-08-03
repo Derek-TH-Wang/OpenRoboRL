@@ -23,7 +23,7 @@ import numpy as np
 import typing
 
 from robots import minitaur_pose_utils
-from envs.sensors import sensor
+from robots.sensors import sensor
 
 _ARRAY = typing.Iterable[float]
 _FLOAT_OR_ARRAY = typing.Union[float, _ARRAY]

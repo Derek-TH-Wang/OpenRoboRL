@@ -23,9 +23,8 @@ import numpy as np
 import pybullet
 import pybullet_utils.bullet_client as bullet_client
 import pybullet_data as pd
-
-from envs.sensors import sensor
-from envs.sensors import space_utils
+from robots.sensors import sensor
+from robots.sensors import space_utils
 
 
 _ACTION_EPS = 0.01
@@ -42,8 +41,6 @@ class LocomotionGymEnv(gym.Env):
   def __init__(self,
                sim_config,
                robot_class=None,
-               env_sensors=None,
-               robot_sensors=None,
                task=None,
                env_randomizers=None):
     """Initializes the locomotion gym environment.
@@ -68,9 +65,7 @@ class LocomotionGymEnv(gym.Env):
     self.seed()
     self._sim_config = sim_config
     self._robot_class = robot_class
-    self._robot_sensors = robot_sensors
 
-    self._sensors = env_sensors if env_sensors is not None else list()
     if self._robot_class is None:
       raise ValueError('robot_class cannot be None.')
 
@@ -80,7 +75,7 @@ class LocomotionGymEnv(gym.Env):
 
     self._env_randomizers = env_randomizers if env_randomizers else []
 
-    # This is a workaround due to the issue in b/130128505#comment5
+    self._sensors = []
     if isinstance(self._task, sensor.Sensor):
       self._sensors.append(self._task)
 
@@ -203,7 +198,6 @@ class LocomotionGymEnv(gym.Env):
       # Rebuild the robot
       self._robot = self._robot_class(
           pybullet_client=self._pybullet_client,
-          sensors=self._robot_sensors,
           on_rack=self._on_rack)
 
     # Reset the pose of the robot.

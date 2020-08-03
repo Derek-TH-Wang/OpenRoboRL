@@ -1,3 +1,19 @@
+# coding=utf-8
+# Copyright 2020 The Google Research Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Pybullet simulation of a xr3 robot."""
 import math
 import os
 import re
@@ -6,6 +22,12 @@ import pybullet as pyb
 
 from robots import robot_motor
 from robots import quadruped
+from robots.sensors import environment_sensors
+from robots.sensors import sensor_wrappers
+from robots.sensors import robot_sensors
+from robots.sensors import sensor
+from robots.sensors import space_utils
+
 
 NUM_MOTORS = 12
 NUM_LEGS = 4
@@ -86,7 +108,6 @@ class xr3(quadruped.Quadruped):
       enable_clip_motor_commands=True,
       time_step=0.001,
       action_repeat=33,
-      sensors=None,
       control_latency=0.002,
       on_rack=False,
       enable_action_interpolation=True,
@@ -96,6 +117,12 @@ class xr3(quadruped.Quadruped):
     self._urdf_filename = urdf_filename
 
     self._enable_clip_motor_commands = enable_clip_motor_commands
+
+    sensors = [
+      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.MotorAngleSensor(num_motors=NUM_MOTORS), num_history=3),
+      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.IMUSensor(), num_history=3),
+      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=environment_sensors.LastActionSensor(num_actions=NUM_MOTORS), num_history=3)
+    ]
 
     motor_kp = [ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,
                 ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,

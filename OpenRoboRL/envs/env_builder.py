@@ -20,9 +20,6 @@ from envs.env_wrappers import observation_dictionary_to_array_wrapper
 from envs.env_wrappers import trajectory_generator_wrapper_env
 from envs.env_wrappers import simple_openloop
 from task import imitation_task
-from envs.sensors import environment_sensors
-from envs.sensors import sensor_wrappers
-from envs.sensors import robot_sensors
 from envs.utilities import controllable_env_randomizer_from_config
 from robots import laikago
 from robots import xr3
@@ -40,17 +37,8 @@ def build_imitation_env(robot, motion_files, num_parallel_envs, mode,
 
   if robot == "xr3":
     robot_class = xr3.xr3
-    num_motors = xr3.NUM_MOTORS
   elif robot == "laikago":
     robot_class = laikago.Laikago
-    num_motors = laikago.NUM_MOTORS
-  
-
-  sensors = [
-      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.MotorAngleSensor(num_motors=num_motors), num_history=3),
-      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.IMUSensor(), num_history=3),
-      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=environment_sensors.LastActionSensor(num_actions=num_motors), num_history=3)
-  ]
 
   task = imitation_task.ImitationTask(ref_motion_filenames=motion_files,
                                       enable_cycle_sync=True,
@@ -64,7 +52,7 @@ def build_imitation_env(robot, motion_files, num_parallel_envs, mode,
     randomizers.append(randomizer)
 
   env = locomotion_gym_env.LocomotionGymEnv(sim_config=sim_params, robot_class=robot_class,
-                                            env_randomizers=randomizers, robot_sensors=sensors, task=task)
+                                            env_randomizers=randomizers, task=task)
 
   env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(env)
   if robot == "xr3":
