@@ -26,6 +26,7 @@ import typing
 import numpy as np
 from robots import robot_motor
 from robots import action_filter
+from sim import pybullet_base
 
 INIT_POSITION = [0, 0, .2]
 INIT_RACK_POSITION = [0, 0, 1]
@@ -41,6 +42,8 @@ MOTOR_NAMES = [
     "motor_front_rightL_joint", "motor_front_rightR_joint",
     "motor_back_rightL_joint", "motor_back_rightR_joint"
 ]
+MAX_MOTOR_ANGLE_CHANGE_PER_STEP = 0.2
+
 _CHASSIS_NAME_PATTERN = re.compile(r"chassis\D*center")
 _MOTOR_NAME_PATTERN = re.compile(r"motor\D*joint")
 _KNEE_NAME_PATTERN = re.compile(r"knee\D*")
@@ -54,6 +57,10 @@ MINITAUR_DEFAULT_MOTOR_OFFSETS = (0, 0, 0, 0, 0, 0, 0, 0)
 MINITAUR_NUM_MOTORS = 8
 TWO_PI = 2 * math.pi
 MINITAUR_DOFS_PER_LEG = 2
+
+_BODY_B_FIELD_NUMBER = 2
+_LINK_A_FIELD_NUMBER = 3
+
 
 def MapToMinusPiToPi(angles):
   """Maps a list of angles to [-pi, pi].
@@ -74,13 +81,16 @@ def MapToMinusPiToPi(angles):
   return mapped_angles
 
 
-class Quadruped(object):
+class Quadruped(pybullet_base.PybulletInterface):
   """The minitaur class that simulates a quadruped robot from Ghost Robotics."""
 
   def __init__(self,
                pybullet_client,
+               urdf_path,
                num_motors=MINITAUR_NUM_MOTORS,
+               name_motor=MOTOR_NAMES,
                dofs_per_leg=MINITAUR_DOFS_PER_LEG,
+               init_motor_angle=[0]*MINITAUR_NUM_MOTORS,
                time_step=0.01,
                action_repeat=1,
                self_collision_enabled=False,
@@ -149,11 +159,14 @@ class Quadruped(object):
       enable_action_filter: Boolean specifying if a lowpass filter should be
         used to smooth actions.
     """
+    self._urdf_file = urdf_path
     self.num_motors = num_motors
+    self.name_motor = name_motor
     self.num_legs = self.num_motors // dofs_per_leg
     self._pybullet_client = pybullet_client
     self._action_repeat = action_repeat
     self._self_collision_enabled = self_collision_enabled
+    self._init_motor_angle = init_motor_angle
     self._motor_direction = motor_direction
     self._motor_offset = motor_offset
     self._observed_motor_torques = np.zeros(self.num_motors)
@@ -451,39 +464,19 @@ class Quadruped(object):
           self._GetDefaultInitOrientation())
 
   def _SettleDownForReset(self, default_motor_angles, reset_time):
-    """Sets the default motor angles and waits for the robot to settle down.
-
-    The reset is skipped is reset_time is less than zereo.
-
-    Args:
-      default_motor_angles: A list of motor angles that the robot will achieve
-        at the end of the reset phase.
-      reset_time: The time duration for the reset phase.
-    """
+    self.ReceiveObservation()
     if reset_time <= 0:
       return
-
-    # Important to fill the observation buffer.
-    self.ReceiveObservation()
-    for _ in range(100):
+    for _ in range(500):
       self._StepInternal(
-          [math.pi / 2] * self.num_motors,
+          self._init_motor_angle,
           motor_control_mode=robot_motor.POSITION)
-      # Don't continue to reset if a safety error has occurred.
-      if not self._is_safe:
-        return
-
-    if default_motor_angles is None:
-      return
-
-    num_steps_to_reset = int(reset_time / self.time_step)
-    for _ in range(num_steps_to_reset):
-      self._StepInternal(
-          default_motor_angles,
-          motor_control_mode=robot_motor.POSITION)
-      # Don't continue to reset if a safety error has occurred.
-      if not self._is_safe:
-        return
+    if default_motor_angles is not None:
+      num_steps_to_reset = int(reset_time / self.time_step)
+      for _ in range(num_steps_to_reset):
+        self._StepInternal(
+            default_motor_angles,
+            motor_control_mode=robot_motor.POSITION)
 
   def _SetMotorTorqueById(self, motor_id, torque):
     self._pybullet_client.setJointMotorControl2(
@@ -504,103 +497,7 @@ class Quadruped(object):
                                    desired_angle)
 
   def GetURDFFile(self):
-    return None
-
-  def _joint_angles_from_link_position(
-      self,
-      robot: typing.Any,
-      link_position: typing.Sequence[float],
-      link_id: int,
-      joint_ids: typing.Sequence[int],
-      base_translation: typing.Sequence[float] = (0, 0, 0),
-      base_rotation: typing.Sequence[float] = (0, 0, 0, 1)):
-    """Uses Inverse Kinematics to calculate joint angles.
-
-    Args:
-      robot: A robot instance.
-      link_position: The (x, y, z) of the link in the body frame. This local frame
-        is transformed relative to the COM frame using a given translation and
-        rotation.
-      link_id: The link id as returned from loadURDF.
-      joint_ids: The positional index of the joints. This can be different from
-        the joint unique ids.
-      base_translation: Additional base translation.
-      base_rotation: Additional base rotation.
-
-    Returns:
-      A list of joint angles.
-    """
-    # Projects to local frame.
-    base_position, base_orientation = robot.GetBasePosition(
-    ), robot.GetBaseOrientation()
-    base_position, base_orientation = robot.pybullet_client.multiplyTransforms(
-        base_position, base_orientation, base_translation, base_rotation)
-
-    # Projects to world space.
-    world_link_pos, _ = robot.pybullet_client.multiplyTransforms(
-        base_position, base_orientation, link_position, (0, 0, 0, 1))
-    ik_solver = 0
-    all_joint_angles = robot.pybullet_client.calculateInverseKinematics(
-        robot.quadruped, link_id, world_link_pos, solver=ik_solver)
-
-    # Extract the relevant joint angles.
-    joint_angles = [all_joint_angles[i] for i in joint_ids]
-    return joint_angles
-
-
-  def _link_position_in_base_frame(
-      self, 
-      robot: typing.Any,
-      link_id: int,
-  ):
-    """Computes the link's local position in the robot frame.
-
-    Args:
-      robot: A robot instance.
-      link_id: The link to calculate its relative position.
-
-    Returns:
-      The relative position of the link.
-    """
-    base_position, base_orientation = robot.GetBasePosition(
-    ), robot.GetBaseOrientation()
-    inverse_translation, inverse_rotation = robot.pybullet_client.invertTransform(
-        base_position, base_orientation)
-
-    link_state = robot.pybullet_client.getLinkState(robot.quadruped, link_id)
-    link_position = link_state[0]
-    link_local_position, _ = robot.pybullet_client.multiplyTransforms(
-        inverse_translation, inverse_rotation, link_position, (0, 0, 0, 1))
-
-    return np.array(link_local_position)
-
-
-  def _compute_jacobian(
-      self,
-      robot: typing.Any,
-      link_id: int,
-  ):
-    """Computes the Jacobian matrix for the given link.
-
-    Args:
-      robot: A robot instance.
-      link_id: The link id as returned from loadURDF.
-
-    Returns:
-      The 3 x N transposed Jacobian matrix. where N is the total DoFs of the
-      robot. For a quadruped, the first 6 columns of the matrix corresponds to
-      the CoM translation and rotation. The columns corresponds to a leg can be
-      extracted with indices [6 + leg_id * 3: 6 + leg_id * 3 + 3].
-    """
-
-    all_joint_angles = [state[0] for state in robot.joint_states]
-    zero_vec = [0] * len(all_joint_angles)
-    jv, _ = robot.pybullet_client.calculateJacobian(robot.quadruped, link_id,
-                                                    (0, 0, 0), all_joint_angles,
-                                                    zero_vec, zero_vec)
-    jacobian = np.array(jv)
-    assert jacobian.shape[0] == 3
-    return jacobian
+    return self._urdf_file
 
   def ResetPose(self, add_constraint):
     """Reset the pose of the minitaur.
@@ -608,8 +505,20 @@ class Quadruped(object):
     Args:
       add_constraint: Whether to add a constraint at the joints of two feet.
     """
-    for i in range(self.num_legs):
-      self._ResetPoseForLeg(i, add_constraint)
+    del add_constraint
+    for name in self._joint_name_to_id:
+      joint_id = self._joint_name_to_id[name]
+      self._pybullet_client.setJointMotorControl2(
+          bodyIndex=self.quadruped,
+          jointIndex=(joint_id),
+          controlMode=self._pybullet_client.VELOCITY_CONTROL,
+          targetVelocity=0,
+          force=0)
+
+    for name, i in zip(self.name_motor, range(len(self.name_motor))):
+      angle = self._init_motor_angle[i] + self._motor_offset[i]
+      self._pybullet_client.resetJointState(
+          self.quadruped, self._joint_name_to_id[name], angle, targetVelocity=0)
 
   def _ResetPoseForLeg(self, leg_id, add_constraint):
     """Reset the initial pose for the leg.
@@ -729,8 +638,34 @@ class Quadruped(object):
     """Get the hip joint positions of the robot within its base frame."""
     raise NotImplementedError("Not implemented for Minitaur.")
 
-  def ComputeMotorAnglesFromFootLocalPosition(self, leg_id,
-                                              foot_local_position):
+  def GetFootContacts(self):
+    all_contacts = self._pybullet_client.getContactPoints(bodyA=self.quadruped)
+    contacts = [False, False, False, False]
+    for contact in all_contacts:
+      # Ignore self contacts
+      if contact[_BODY_B_FIELD_NUMBER] == self.quadruped:
+        continue
+      try:
+        toe_link_index = self._foot_link_ids.index(
+            contact[_LINK_A_FIELD_NUMBER])
+        contacts[toe_link_index] = True
+      except ValueError:
+        continue
+    return contacts
+
+  def CalFootPositionsInBaseFrame(self):
+    """Get the robot's foot position in the base frame."""
+    raise NotImplementedError("Not implemented for Minitaur.")
+
+  def CalJacobian(self, leg_id):
+    """Compute the Jacobian for a given leg."""
+    raise NotImplementedError("Not implemented for Minitaur.")
+
+  def CalJointF2Tau(self, leg_id, contact_force):
+    """Maps the foot contact force to the leg joint torques."""
+    raise NotImplementedError("Not implemented for Minitaur.")
+
+  def CalIK(self, leg_id, foot_local_position):
     """Use IK to compute the motor angles, given the foot link's local position.
 
     Args:
@@ -742,92 +677,7 @@ class Quadruped(object):
       leg. The position indices is consistent with the joint orders as returned
       by GetMotorAngles API.
     """
-    assert len(self._foot_link_ids) == self.num_legs
-    toe_id = self._foot_link_ids[leg_id]
-
-    motors_per_leg = self.num_motors // self.num_legs
-    joint_position_idxs = [
-        i for i in range(leg_id * motors_per_leg, leg_id * motors_per_leg +
-                         motors_per_leg)
-    ]
-
-    joint_angles = self._joint_angles_from_link_position(
-        robot=self,
-        link_position=foot_local_position,
-        link_id=toe_id,
-        joint_ids=joint_position_idxs,
-    )
-
-    # Joint offset is necessary for Laikago.
-    joint_angles = np.multiply(
-        np.asarray(joint_angles) -
-        np.asarray(self._motor_offset)[joint_position_idxs],
-        self._motor_direction[joint_position_idxs])
-
-    # Return the joing index (the same as when calling GetMotorAngles) as well
-    # as the angles.
-    return joint_position_idxs, joint_angles.tolist()
-
-  def ComputeJacobian(self, leg_id):
-    """Compute the Jacobian for a given leg."""
-    # Does not work for Minitaur which has the four bar mechanism for now.
-    assert len(self._foot_link_ids) == self.num_legs
-    return self._compute_jacobian(
-        robot=self,
-        link_id=self._foot_link_ids[leg_id],
-    )
-
-  def MapContactForceToJointTorques(self, leg_id, contact_force):
-    """Maps the foot contact force to the leg joint torques."""
-    jv = self.ComputeJacobian(leg_id)
-    all_motor_torques = np.matmul(contact_force, jv)
-    motor_torques = {}
-    motors_per_leg = self.num_motors // self.num_legs
-    com_dof = 6
-    for joint_id in range(leg_id * motors_per_leg,
-                          (leg_id + 1) * motors_per_leg):
-      motor_torques[joint_id] = all_motor_torques[
-          com_dof + joint_id] * self._motor_direction[joint_id]
-
-    return motor_torques
-
-  def GetFootContacts(self):
-    """Get minitaur's foot contact situation with the ground.
-
-    Returns:
-      A list of 4 booleans. The ith boolean is True if leg i is in contact with
-      ground.
-    """
-    contacts = []
-    for leg_idx in range(MINITAUR_NUM_MOTORS // 2):
-      link_id_1 = self._foot_link_ids[leg_idx * 2]
-      link_id_2 = self._foot_link_ids[leg_idx * 2 + 1]
-      contact_1 = bool(
-          self._pybullet_client.getContactPoints(
-              bodyA=0,
-              bodyB=self.quadruped,
-              linkIndexA=-1,
-              linkIndexB=link_id_1))
-      contact_2 = bool(
-          self._pybullet_client.getContactPoints(
-              bodyA=0,
-              bodyB=self.quadruped,
-              linkIndexA=-1,
-              linkIndexB=link_id_2))
-      contacts.append(contact_1 or contact_2)
-    return contacts
-
-  def GetFootPositionsInBaseFrame(self):
-    """Get the robot's foot position in the base frame."""
-    assert len(self._foot_link_ids) == self.num_legs
-    foot_positions = []
-    for foot_id in self.GetFootLinkIDs():
-      foot_positions.append(
-          self._link_position_in_base_frame(
-              robot=self,
-              link_id=foot_id,
-          ))
-    return np.array(foot_positions)
+    raise NotImplementedError("Not implemented for Minitaur.")
 
   def GetTrueMotorAngles(self):
     """Gets the eight motor angles at the current moment, mapped to [-pi, pi].
@@ -1004,6 +854,7 @@ class Quadruped(object):
     if control_mode is None:
       control_mode = self._motor_control_mode
 
+    motor_commands = self._ClipMotorCommands(motor_commands)
     motor_commands = np.asarray(motor_commands)
 
     q, qdot = self._GetPDObservation()
@@ -1034,6 +885,25 @@ class Quadruped(object):
         motor_ids.append(motor_id)
         motor_torques.append(0)
     self._SetMotorTorqueByIds(motor_ids, motor_torques)
+
+  def _ClipMotorCommands(self, motor_commands):
+    """Clips motor commands.
+
+    Args:
+      motor_commands: np.array. Can be motor angles, torques, hybrid commands,
+        or motor pwms (for Minitaur only).
+
+    Returns:
+      Clipped motor commands.
+    """
+
+    # clamp the motor command by the joint limit, in case weired things happens
+    max_angle_change = MAX_MOTOR_ANGLE_CHANGE_PER_STEP
+    current_motor_angles = self.GetMotorAngles()
+    motor_commands = np.clip(motor_commands,
+                             current_motor_angles - max_angle_change,
+                             current_motor_angles + max_angle_change)
+    return motor_commands
 
   def ConvertFromLegModel(self, actions):
     """Convert the actions that use leg model to the real motor actions.
@@ -1385,7 +1255,7 @@ class Quadruped(object):
     self._action_repeat = action_repeat
 
   def _GetMotorNames(self):
-    return MOTOR_NAMES
+    return self.name_motor
 
   def _GetDefaultInitPosition(self):
     """Returns the init position of the robot.

@@ -15,13 +15,14 @@
 
 """Pybullet simulation of a xr3 robot."""
 import math
+import typing
 import os
 import re
 import numpy as np
 from utils import transformations
 
 from robots import robot_motor
-from robots import quadruped
+from sim import pybullet_quadruped
 from robots.sensors import environment_sensors
 from robots.sensors import sensor_wrappers
 from robots.sensors import robot_sensors
@@ -56,7 +57,6 @@ JOINT_OFFSETS = np.array(
     [HIP_JOINT_OFFSET, UPPER_LEG_JOINT_OFFSET, KNEE_JOINT_OFFSET] * 4)
 PI = math.pi
 
-MAX_MOTOR_ANGLE_CHANGE_PER_STEP = 0.2
 _DEFAULT_HIP_POSITIONS = (
     (0.38, -0.1161, 0),
     (0.38, 0.1161, 0),
@@ -91,13 +91,11 @@ _TOE_NAME_PATTERN = re.compile(r"toe_")
 URDF_FILENAME = "/home/derek/RL/algorithm/OpenRoboRL/OpenRoboRL/robots/mini_cheetah.urdf"
 # URDF_FILENAME = "mini_cheetah/mini_cheetah.urdf"
 # URDF_FILENAME = "laikago/laikago_toes_limits.urdf"
-_BODY_B_FIELD_NUMBER = 2
-_LINK_A_FIELD_NUMBER = 3
 
 UPPER_BOUND = 6.28318548203
 LOWER_BOUND = -6.28318548203
 
-class xr3(quadruped.Quadruped):
+class XR3(pybullet_quadruped.Quadruped):
   """A simulation for the Laikago robot."""
   
   ACTION_CONFIG = [[UPPER_BOUND]*12, [LOWER_BOUND]*12]
@@ -105,7 +103,6 @@ class xr3(quadruped.Quadruped):
   def __init__(self,
       pybullet_client,
       urdf_filename=URDF_FILENAME,
-      enable_clip_motor_commands=True,
       time_step=0.001,
       action_repeat=33,
       control_latency=0.002,
@@ -115,8 +112,6 @@ class xr3(quadruped.Quadruped):
   ):
     self.robot_name = "xr3"
     self._urdf_filename = urdf_filename
-
-    self._enable_clip_motor_commands = enable_clip_motor_commands
 
     sensors = [
       sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.MotorAngleSensor(num_motors=NUM_MOTORS), num_history=3),
@@ -135,12 +130,15 @@ class xr3(quadruped.Quadruped):
 
     motor_torque_limits = None # jp hack
     
-    super(xr3, self).__init__(
+    super(XR3, self).__init__(
         pybullet_client=pybullet_client,
+        urdf_path=self._urdf_filename,
         time_step=time_step,
         action_repeat=action_repeat,
         num_motors=NUM_MOTORS,
+        name_motor=MOTOR_NAMES,
         dofs_per_leg=DOFS_PER_LEG,
+        init_motor_angle = INIT_MOTOR_ANGLES,
         motor_direction=JOINT_DIRECTIONS,
         motor_offset=JOINT_OFFSETS,
         motor_overheat_protection=False,
@@ -155,89 +153,184 @@ class xr3(quadruped.Quadruped):
     
     return
 
-  def _LoadRobotURDF(self):
-    print("-----------------_LoadRobotURDF")
-    laikago_urdf_path = self.GetURDFFile()
-    if self._self_collision_enabled:
-      self.quadruped = self._pybullet_client.loadURDF(
-          laikago_urdf_path,
-          self._GetDefaultInitPosition(),
-          self._GetDefaultInitOrientation(),
-          flags=self._pybullet_client.URDF_USE_SELF_COLLISION)
-    else:
-      self.quadruped = self._pybullet_client.loadURDF(
-          laikago_urdf_path, self._GetDefaultInitPosition(),
-          self._GetDefaultInitOrientation())
-    
-
-  def _SettleDownForReset(self, default_motor_angles, reset_time):
-    self.ReceiveObservation()
-
-    if reset_time <= 0:
-      return
-
-    for _ in range(500):
-      self._StepInternal(
-          INIT_MOTOR_ANGLES,
-          motor_control_mode=robot_motor.POSITION)
-    if default_motor_angles is not None:
-      num_steps_to_reset = int(reset_time / self.time_step)
-      for _ in range(num_steps_to_reset):
-        self._StepInternal(
-            default_motor_angles,
-            motor_control_mode=robot_motor.POSITION)
-
   def GetHipPositionsInBaseFrame(self):
     return _DEFAULT_HIP_POSITIONS
 
-  def GetFootContacts(self):
-    all_contacts = self._pybullet_client.getContactPoints(bodyA=self.quadruped)
+  def CalFootPositionsInBaseFrame(self):
+    """Get the robot's foot position in the base frame."""
+    assert len(self._foot_link_ids) == self.num_legs
+    foot_positions = []
+    for foot_id in self.GetFootLinkIDs():
+      foot_positions.append(
+          self._cal_link_pos(
+              robot=self,
+              link_id=foot_id,
+          ))
+    return np.array(foot_positions)
 
-    contacts = [False, False, False, False]
-    for contact in all_contacts:
-      # Ignore self contacts
-      if contact[_BODY_B_FIELD_NUMBER] == self.quadruped:
-        continue
-      try:
-        toe_link_index = self._foot_link_ids.index(
-            contact[_LINK_A_FIELD_NUMBER])
-        contacts[toe_link_index] = True
-      except ValueError:
-        continue
-
-    return contacts
-
-  def ComputeJacobian(self, leg_id):
+  def CalJacobian(self, leg_id):
     """Compute the Jacobian for a given leg."""
-    # Because of the default rotation in the Laikago URDF, we need to reorder
-    # the rows in the Jacobian matrix.
-    return super(xr3, self).ComputeJacobian(leg_id)[(2, 0, 1), :]
+    # Does not work for Minitaur which has the four bar mechanism for now.
+    assert len(self._foot_link_ids) == self.num_legs
+    return self._cal_jacobian(
+        robot=self,
+        link_id=self._foot_link_ids[leg_id],
+    )
 
-  def ResetPose(self, add_constraint):
-    del add_constraint
-    for name in self._joint_name_to_id:
-      joint_id = self._joint_name_to_id[name]
-      self._pybullet_client.setJointMotorControl2(
-          bodyIndex=self.quadruped,
-          jointIndex=(joint_id),
-          controlMode=self._pybullet_client.VELOCITY_CONTROL,
-          targetVelocity=0,
-          force=0)
-    for name, i in zip(MOTOR_NAMES, range(len(MOTOR_NAMES))):
-      if "abduct" in name:
-        angle = INIT_MOTOR_ANGLES[i] + HIP_JOINT_OFFSET
-      elif "thigh" in name:
-        angle = INIT_MOTOR_ANGLES[i] + UPPER_LEG_JOINT_OFFSET
-      elif "knee" in name:
-        angle = INIT_MOTOR_ANGLES[i] + KNEE_JOINT_OFFSET
-      else:
-        raise ValueError("The name %s is not recognized as a motor joint." %
-                         name)
-      self._pybullet_client.resetJointState(
-          self.quadruped, self._joint_name_to_id[name], angle, targetVelocity=0)
+  def CalJointF2Tau(self, leg_id, contact_force):
+    """Maps the foot contact force to the leg joint torques."""
+    jv = self.CalJacobian(leg_id)
+    all_motor_torques = np.matmul(contact_force, jv)
+    motor_torques = {}
+    motors_per_leg = self.num_motors // self.num_legs
+    com_dof = 6
+    for joint_id in range(leg_id * motors_per_leg,
+                          (leg_id + 1) * motors_per_leg):
+      motor_torques[joint_id] = all_motor_torques[
+          com_dof + joint_id] * self._motor_direction[joint_id]
 
-  def GetURDFFile(self):
-    return self._urdf_filename
+    return motor_torques
+
+  def CalIK(self, leg_id, foot_local_position):
+    """Use IK to compute the motor angles, given the foot link's local position.
+
+    Args:
+      leg_id: The leg index.
+      foot_local_position: The foot link's position in the base frame.
+
+    Returns:
+      A tuple. The position indices and the angles for all joints along the
+      leg. The position indices is consistent with the joint orders as returned
+      by GetMotorAngles API.
+    """
+    assert len(self._foot_link_ids) == self.num_legs
+    toe_id = self._foot_link_ids[leg_id]
+
+    motors_per_leg = self.num_motors // self.num_legs
+    joint_position_idxs = [
+        i for i in range(leg_id * motors_per_leg, leg_id * motors_per_leg +
+                         motors_per_leg)
+    ]
+
+    joint_angles = self._ik(
+        robot=self,
+        link_position=foot_local_position,
+        link_id=toe_id,
+        joint_ids=joint_position_idxs,
+    )
+
+    # Joint offset is necessary for Laikago.
+    joint_angles = np.multiply(
+        np.asarray(joint_angles) -
+        np.asarray(self._motor_offset)[joint_position_idxs],
+        self._motor_direction[joint_position_idxs])
+
+    # Return the joing index (the same as when calling GetMotorAngles) as well
+    # as the angles.
+    return joint_position_idxs, joint_angles.tolist()
+
+  def _ik(
+      self,
+      robot: typing.Any,
+      link_position: typing.Sequence[float],
+      link_id: int,
+      joint_ids: typing.Sequence[int],
+      base_translation: typing.Sequence[float] = (0, 0, 0),
+      base_rotation: typing.Sequence[float] = (0, 0, 0, 1)):
+    """Uses Inverse Kinematics to calculate joint angles.
+
+    Args:
+      robot: A robot instance.
+      link_position: The (x, y, z) of the link in the body frame. This local frame
+        is transformed relative to the COM frame using a given translation and
+        rotation.
+      link_id: The link id as returned from loadURDF.
+      joint_ids: The positional index of the joints. This can be different from
+        the joint unique ids.
+      base_translation: Additional base translation.
+      base_rotation: Additional base rotation.
+
+    Returns:
+      A list of joint angles.
+    """
+    # Projects to local frame.
+    base_position, base_orientation = robot.GetBasePosition(
+    ), robot.GetBaseOrientation()
+    base_position, base_orientation = robot.pybullet_client.multiplyTransforms(
+        base_position, base_orientation, base_translation, base_rotation)
+
+    # Projects to world space.
+    world_link_pos, _ = robot.pybullet_client.multiplyTransforms(
+        base_position, base_orientation, link_position, (0, 0, 0, 1))
+    ik_solver = 0
+    all_joint_angles = robot.pybullet_client.calculateInverseKinematics(
+        robot.quadruped, link_id, world_link_pos, solver=ik_solver)
+
+    # Extract the relevant joint angles.
+    joint_angles = [all_joint_angles[i] for i in joint_ids]
+    return joint_angles
+
+  def _cal_link_pos(
+      self, 
+      robot: typing.Any,
+      link_id: int,
+  ):
+    """Computes the link's local position in the robot frame.
+
+    Args:
+      robot: A robot instance.
+      link_id: The link to calculate its relative position.
+
+    Returns:
+      The relative position of the link.
+    """
+    base_position, base_orientation = robot.GetBasePosition(
+    ), robot.GetBaseOrientation()
+    inverse_translation, inverse_rotation = robot.pybullet_client.invertTransform(
+        base_position, base_orientation)
+
+    link_state = robot.pybullet_client.getLinkState(robot.quadruped, link_id)
+    link_position = link_state[0]
+    link_local_position, _ = robot.pybullet_client.multiplyTransforms(
+        inverse_translation, inverse_rotation, link_position, (0, 0, 0, 1))
+
+    return np.array(link_local_position)
+
+  def _cal_jacobian(
+      self,
+      robot: typing.Any,
+      link_id: int,
+  ):
+    """Computes the Jacobian matrix for the given link.
+
+    Args:
+      robot: A robot instance.
+      link_id: The link id as returned from loadURDF.
+
+    Returns:
+      The 3 x N transposed Jacobian matrix. where N is the total DoFs of the
+      robot. For a quadruped, the first 6 columns of the matrix corresponds to
+      the CoM translation and rotation. The columns corresponds to a leg can be
+      extracted with indices [6 + leg_id * 3: 6 + leg_id * 3 + 3].
+    """
+
+    all_joint_angles = [state[0] for state in robot.joint_states]
+    zero_vec = [0] * len(all_joint_angles)
+    jv, _ = robot.pybullet_client.calculateJacobian(robot.quadruped, link_id,
+                                                    (0, 0, 0), all_joint_angles,
+                                                    zero_vec, zero_vec)
+    jacobian = np.array(jv)
+    assert jacobian.shape[0] == 3
+    return jacobian
+
+  def CalJacobian(self, leg_id):
+    """Compute the Jacobian for a given leg."""
+    # Does not work for Minitaur which has the four bar mechanism for now.
+    assert len(self._foot_link_ids) == self.num_legs
+    return self._cal_jacobian(
+        robot=self,
+        link_id=self._foot_link_ids[leg_id],
+    )[(2, 0, 1), :]
 
   def _BuildUrdfIds(self):
     """Build the link Ids from its name in the URDF file.
@@ -280,9 +373,6 @@ class xr3(quadruped.Quadruped):
 
     return
 
-  def _GetMotorNames(self):
-    return MOTOR_NAMES
-
   def _GetDefaultInitPosition(self):
     if self._on_rack:
       return INIT_RACK_POSITION
@@ -309,37 +399,4 @@ class xr3(quadruped.Quadruped):
     """Get default initial joint pose."""
     joint_pose = (INIT_MOTOR_ANGLES + JOINT_OFFSETS) * JOINT_DIRECTIONS
     return joint_pose
-
-  def ApplyAction(self, motor_commands, motor_control_mode=None):
-    """Clips and then apply the motor commands using the motor model.
-
-    Args:
-      motor_commands: np.array. Can be motor angles, torques, hybrid commands,
-        or motor pwms (for Minitaur only).N
-      motor_control_mode: A MotorControlMode enum.
-    """
-    if self._enable_clip_motor_commands:
-      motor_commands = self._ClipMotorCommands(motor_commands)
-
-    super(xr3, self).ApplyAction(motor_commands, motor_control_mode)
-    return
-
-  def _ClipMotorCommands(self, motor_commands):
-    """Clips motor commands.
-
-    Args:
-      motor_commands: np.array. Can be motor angles, torques, hybrid commands,
-        or motor pwms (for Minitaur only).
-
-    Returns:
-      Clipped motor commands.
-    """
-
-    # clamp the motor command by the joint limit, in case weired things happens
-    max_angle_change = MAX_MOTOR_ANGLE_CHANGE_PER_STEP
-    current_motor_angles = self.GetMotorAngles()
-    motor_commands = np.clip(motor_commands,
-                             current_motor_angles - max_angle_change,
-                             current_motor_angles + max_angle_change)
-    return motor_commands
 

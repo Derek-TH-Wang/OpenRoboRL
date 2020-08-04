@@ -36,7 +36,7 @@ def build_imitation_env(robot, motion_files, num_parallel_envs, mode,
   sim_params.enable_rendering = enable_rendering
 
   if robot == "xr3":
-    robot_class = xr3.xr3
+    robot_class = xr3.XR3
   elif robot == "laikago":
     robot_class = laikago.Laikago
 
