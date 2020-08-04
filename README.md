@@ -1,12 +1,6 @@
 # OpenRoboRL
 
-This repository contains code accompanying the paper:
-
-"Learning Agile Robotic Locomotion Skills by Imitating Animals",
-
-by Xue Bin Peng et al. It provides a Gym environment for training a simulated quadruped robot to imitate various reference motions, and example training code for learning the policies.
-
-Project page: https://xbpeng.github.io/projects/Robotic_Imitation/index.html
+An open source robot reinforcement learing plantform using stable-baselines and OpenAI Gym 
 
 ## Getting Started
 
@@ -51,7 +45,4 @@ To test a trained model, run the following command
 
 For more information on the reference motion data format, see the [DeepMimic documentation](https://github.com/xbpeng/DeepMimic)
 
----
-
-*Disclaimer: This is not an official Google product.*
 

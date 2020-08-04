@@ -679,6 +679,59 @@ class Quadruped(pybullet_base.PybulletInterface):
     """
     raise NotImplementedError("Not implemented for Minitaur.")
 
+  def GetLinkPos(
+      self, 
+      robot: typing.Any,
+      link_id: int,
+  ):
+    """Computes the link's local position in the robot frame.
+
+    Args:
+      robot: A robot instance.
+      link_id: The link to calculate its relative position.
+
+    Returns:
+      The relative position of the link.
+    """
+    base_position, base_orientation = robot.GetBasePosition(
+    ), robot.GetBaseOrientation()
+    inverse_translation, inverse_rotation = robot.pybullet_client.invertTransform(
+        base_position, base_orientation)
+
+    link_state = robot.pybullet_client.getLinkState(robot.quadruped, link_id)
+    link_position = link_state[0]
+    link_local_position, _ = robot.pybullet_client.multiplyTransforms(
+        inverse_translation, inverse_rotation, link_position, (0, 0, 0, 1))
+
+    return np.array(link_local_position)
+
+  def GetJacobian(
+      self,
+      robot: typing.Any,
+      link_id: int,
+  ):
+    """Computes the Jacobian matrix for the given link.
+
+    Args:
+      robot: A robot instance.
+      link_id: The link id as returned from loadURDF.
+
+    Returns:
+      The 3 x N transposed Jacobian matrix. where N is the total DoFs of the
+      robot. For a quadruped, the first 6 columns of the matrix corresponds to
+      the CoM translation and rotation. The columns corresponds to a leg can be
+      extracted with indices [6 + leg_id * 3: 6 + leg_id * 3 + 3].
+    """
+
+    all_joint_angles = [state[0] for state in robot.joint_states]
+    zero_vec = [0] * len(all_joint_angles)
+    jv, _ = robot.pybullet_client.calculateJacobian(robot.quadruped, link_id,
+                                                    (0, 0, 0), all_joint_angles,
+                                                    zero_vec, zero_vec)
+    jacobian = np.array(jv)
+    assert jacobian.shape[0] == 3
+    return jacobian
+
   def GetTrueMotorAngles(self):
     """Gets the eight motor angles at the current moment, mapped to [-pi, pi].
 
