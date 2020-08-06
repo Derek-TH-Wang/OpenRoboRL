@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from envs import locomotion_gym_env
 from sim import sim_config
+from sim import pybullet_env
 from envs.env_wrappers import imitation_wrapper_env
 from envs.env_wrappers import observation_dictionary_to_array_wrapper
 from envs.env_wrappers import trajectory_generator_wrapper_env
@@ -51,7 +51,7 @@ def build_imitation_env(robot, motion_files, num_parallel_envs, mode,
     randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(verbose=False)
     randomizers.append(randomizer)
 
-  env = locomotion_gym_env.LocomotionGymEnv(sim_config=sim_params, robot_class=robot_class,
+  env = pybullet_env.PybulletEnv(sim_config=sim_params, robot_class=robot_class,
                                             env_randomizers=randomizers, task=task)
 
   env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(env)

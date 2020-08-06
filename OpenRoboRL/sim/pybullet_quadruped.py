@@ -26,7 +26,6 @@ import typing
 import numpy as np
 from robots import robot_motor
 from robots import action_filter
-from sim import pybullet_base
 
 INIT_POSITION = [0, 0, .2]
 INIT_RACK_POSITION = [0, 0, 1]
@@ -81,7 +80,7 @@ def MapToMinusPiToPi(angles):
   return mapped_angles
 
 
-class Quadruped(pybullet_base.PybulletInterface):
+class Quadruped(object):
   """The minitaur class that simulates a quadruped robot from Ghost Robotics."""
 
   def __init__(self,

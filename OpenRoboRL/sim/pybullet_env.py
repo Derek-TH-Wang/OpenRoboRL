@@ -31,7 +31,7 @@ _ACTION_EPS = 0.01
 _NUM_SIMULATION_ITERATION_STEPS = 300
 _LOG_BUFFER_LENGTH = 5000
 
-class LocomotionGymEnv(gym.Env):
+class PybulletEnv(gym.Env):
   """The gym environment for the locomotion tasks."""
   metadata = {
       'render.modes': ['human', 'rgb_array'],

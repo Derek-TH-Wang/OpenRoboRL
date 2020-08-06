@@ -35,7 +35,7 @@ class ImitationWrapperEnv(object):
     """Initialzes the wrapped env.
 
     Args:
-      gym_env: An instance of LocomotionGymEnv.
+      gym_env: An instance of pybullet_env.
     """
     self._gym_env = gym_env
     self.observation_space = self._build_observation_space()

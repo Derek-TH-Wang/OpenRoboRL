@@ -20,13 +20,13 @@ from __future__ import division
 from __future__ import print_function
 
 class TrajectoryGeneratorWrapperEnv(object):
-  """A wrapped LocomotionGymEnv with a built-in trajectory generator."""
+  """A wrapped pybullet_env with a built-in trajectory generator."""
 
   def __init__(self, gym_env, trajectory_generator):
     """Initialzes the wrapped env.
 
     Args:
-      gym_env: An instance of LocomotionGymEnv.
+      gym_env: An instance of pybullet_env.
       trajectory_generator: A trajectory_generator that can potentially modify
         the action and observation. Typticall generators includes the PMTG and
         openloop signals. Expected to have get_action and get_observation
