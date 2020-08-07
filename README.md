@@ -1,6 +1,6 @@
 # OpenRoboRL
 
-An open source robot reinforcement learing plantform using stable-baselines and OpenAI Gym 
+An open source robot reinforcement learing plantform using stable-baselines and OpenAI Gym in Pybullet simulator
 
 ## Getting Started
 
