@@ -19,14 +19,16 @@ import typing
 import os
 import re
 import numpy as np
+from gym import spaces
 from utils import transformations
 
 from robots import robot_motor
-from sim import pybullet_quadruped
+from robots import quadruped
 from robots.sensors import environment_sensors
 from robots.sensors import sensor_wrappers
 from robots.sensors import robot_sensors
 from robots.sensors import sensor
+from robots.sensors import space_utils
 from robots.sensors import space_utils
 
 
@@ -95,20 +97,21 @@ URDF_FILENAME = "/home/derek/RL/algorithm/OpenRoboRL/OpenRoboRL/robots/mini_chee
 UPPER_BOUND = 6.28318548203
 LOWER_BOUND = -6.28318548203
 
-class XR3(pybullet_quadruped.Quadruped):
+
+class XR3(quadruped.Quadruped):
   """A simulation for the Laikago robot."""
   
   ACTION_CONFIG = [[UPPER_BOUND]*12, [LOWER_BOUND]*12]
 
   def __init__(self,
-      pybullet_client,
       urdf_filename=URDF_FILENAME,
       time_step=0.001,
       action_repeat=33,
       control_latency=0.002,
       on_rack=False,
       enable_action_interpolation=True,
-      enable_action_filter=True
+      enable_action_filter=True,
+      enable_randomizer=True
   ):
     self.robot_name = "xr3"
     self._urdf_filename = urdf_filename
@@ -118,6 +121,14 @@ class XR3(pybullet_quadruped.Quadruped):
       sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.IMUSensor(), num_history=3),
       sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=environment_sensors.LastActionSensor(num_actions=NUM_MOTORS), num_history=3)
     ]
+    # Construct the observation space from the list of sensors. Note that we
+    # will reconstruct the observation_space after the robot is created.
+    self.observation_space = (
+        space_utils.convert_sensors_to_gym_space_dictionary(sensors))
+    self.action_space = spaces.Box(
+        np.array([LOWER_BOUND]*12),
+        np.array([UPPER_BOUND]*12),
+        dtype=np.float32)
 
     motor_kp = [ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,
                 ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,
@@ -131,7 +142,6 @@ class XR3(pybullet_quadruped.Quadruped):
     motor_torque_limits = None # jp hack
     
     super(XR3, self).__init__(
-        pybullet_client=pybullet_client,
         urdf_path=self._urdf_filename,
         time_step=time_step,
         action_repeat=action_repeat,
@@ -149,7 +159,8 @@ class XR3(pybullet_quadruped.Quadruped):
         control_latency=control_latency,
         on_rack=on_rack,
         enable_action_interpolation=enable_action_interpolation,
-        enable_action_filter=enable_action_filter)
+        enable_action_filter=enable_action_filter,
+        enable_randomizer=enable_randomizer)
     
     return
 
@@ -202,7 +213,7 @@ class XR3(pybullet_quadruped.Quadruped):
     Raises:
       ValueError: Unknown category of the joint name.
     """
-    num_joints = self._pybullet_client.getNumJoints(self.quadruped)
+    num_joints = self.pybullet_client.getNumJoints(self.quadruped)
     self._chassis_link_ids = [-1]
     self._leg_link_ids = []
     self._motor_link_ids = []
@@ -210,7 +221,7 @@ class XR3(pybullet_quadruped.Quadruped):
     self._foot_link_ids = []
 
     for i in range(num_joints):
-      joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
+      joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
       joint_name = joint_info[1].decode("UTF-8")
       joint_id = self._joint_name_to_id[joint_name]
       if _CHASSIS_NAME_PATTERN.match(joint_name):

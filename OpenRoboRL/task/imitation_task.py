@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A simple locomotion taskand termination condition."""
+"""A simple locomotion task and termination condition."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -23,19 +23,21 @@ import logging
 import os
 import numpy as np
 
-from envs.env_wrappers import imitation_terminal_conditions
 from task import pose3d
 from task import motion_data
 from task import motion_util
 from utils import transformations
+from robots import laikago
+
+T_STEP = 0.0025
+NUM_ACTION_REPEAT = 33
 
 
-class ImitationTask(object):
+class ImitationTask(laikago.Laikago):
   """Imitation reference motion task."""
 
   def __init__(self,
                weight=1.0,
-               terminal_condition=imitation_terminal_conditions.imitation_terminal_condition,
                ref_motion_filenames=None,
                enable_cycle_sync=True,
                clip_velocity=None,
@@ -58,7 +60,7 @@ class ImitationTask(object):
                root_velocity_err_scale=2,
                perturb_init_state_prob=0.0,
                tar_obs_noise=None,
-               draw_ref_model_alpha=0.5):
+               enable_randomizer = True):
     """Initializes the task.
 
     Args:
@@ -107,11 +109,9 @@ class ImitationTask(object):
       draw_ref_model_alpha: Color transparency for drawing the reference model.
     """
     self._weight = weight
-    self._terminal_condition = terminal_condition
     self._last_base_position = None
     self._clip_velocity = clip_velocity
     self._action_history_sensor = None
-    self._env = None
 
     assert ref_motion_filenames is not None
     self._ref_state_init_prob = ref_state_init_prob
@@ -139,7 +139,6 @@ class ImitationTask(object):
     self._default_pose = None
     self._perturb_init_state_prob = perturb_init_state_prob
     self._tar_obs_noise = tar_obs_noise
-    self._draw_ref_model_alpha = draw_ref_model_alpha
 
     self._prev_motion_phase = 0
     self._origin_offset_rot = np.array([0, 0, 0, 1])
@@ -159,26 +158,29 @@ class ImitationTask(object):
     self._root_pose_err_scale = root_pose_err_scale
     self._root_velocity_err_scale = root_velocity_err_scale
 
+    super(ImitationTask, self).__init__(time_step = T_STEP, 
+                                        action_repeat = NUM_ACTION_REPEAT,
+                                        enable_randomizer=enable_randomizer)
+
     return
 
-  def __call__(self, env):
-    return self.reward(env)
+  def compute_reward(self):
+    return self.reward()
 
-  def reset(self, env):
+  def reset_task(self):
     """Resets the internal state of the task."""
-    self._env = env
     self._last_base_position = self._get_sim_base_position()
     self._episode_start_time_offset = 0.0
 
-    if (self._ref_motions is None or self._env.hard_reset):
+    if (self._ref_motions is None or self.hard_reset):
       self._ref_motions = self._load_ref_motions(self._ref_motion_filenames)
       self._active_motion_id = self._sample_ref_motion()
 
-    if (self._ref_model is None or self._env.hard_reset):
+    if (self._ref_model is None or self.hard_reset):
       self._ref_model = self._build_ref_model()
       self._build_joint_data()
 
-    if self._default_pose is None or self._env.hard_reset:
+    if self._default_pose is None or self.hard_reset:
       self._default_pose = self._record_default_pose()
 
     rand_val = self._rand_uniform(0.0, 1.0)
@@ -199,19 +201,57 @@ class ImitationTask(object):
 
     return
 
-  def update(self, env):
+  def imitation_step(self):
     """Updates the internal state of the task."""
-    del env
 
     self._update_ref_motion()
     self._last_base_position = self._get_sim_base_position()
 
     return
 
-  def done(self, env):
+  def is_done(self,
+              dist_fail_threshold=1.0,
+              rot_fail_threshold=0.5 * np.pi):
     """Checks if the episode is over."""
-    del env
-    done = self._terminal_condition(self._env)
+    motion_over = self.is_motion_over()
+    foot_links = self.GetFootLinkIDs()
+    ground = self.get_ground()
+
+    contact_fall = False
+    # sometimes the robot can be initialized with some ground penetration
+    # so do not check for contacts until after the first env step.
+    if self.env_step_counter > 0:
+      robot_ground_contacts = self.pybullet_client.getContactPoints(
+          bodyA=self.quadruped, bodyB=ground)
+
+      for contact in robot_ground_contacts:
+        if contact[3] not in foot_links:
+          contact_fall = True
+          break
+
+    root_pos_ref, root_rot_ref = self.pybullet_client.getBasePositionAndOrientation(
+        self.get_ref_model())
+    root_pos_sim, root_rot_sim = self.pybullet_client.getBasePositionAndOrientation(
+        self.quadruped)
+
+    root_pos_diff = np.array(root_pos_ref) - np.array(root_pos_sim)
+    root_pos_fail = (
+        root_pos_diff.dot(root_pos_diff) >
+        dist_fail_threshold * dist_fail_threshold)
+
+    root_rot_diff = transformations.quaternion_multiply(
+        np.array(root_rot_ref),
+        transformations.quaternion_conjugate(np.array(root_rot_sim)))
+    _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(
+        root_rot_diff)
+    root_rot_diff_angle = motion_util.normalize_rotation_angle(
+        root_rot_diff_angle)
+    root_rot_fail = (np.abs(root_rot_diff_angle) > rot_fail_threshold)
+
+    done = motion_over \
+        or contact_fall \
+        or root_pos_fail \
+        or root_rot_fail
 
     return done
 
@@ -266,12 +306,11 @@ class ImitationTask(object):
     tar_poses = []
 
     time0 = self._get_motion_time()
-    dt = self._env.env_time_step
+    dt = self.env_time_step
     motion = self.get_active_motion()
 
-    robot = self._env.robot
     ref_base_pos = self._get_ref_base_position()
-    sim_base_rot = np.array(robot.GetBaseOrientation())
+    sim_base_rot = np.array(self.GetBaseOrientation())
 
     heading = motion_util.calc_heading(sim_base_rot)
     if self._tar_obs_noise is not None:
@@ -339,9 +378,8 @@ class ImitationTask(object):
     self._ref_state_init_prob = prob
     return
 
-  def reward(self, env):
+  def reward(self):
     """Get the reward without side effects."""
-    del env
 
     pose_reward = self._calc_reward_pose()
     velocity_reward = self._calc_reward_velocity()
@@ -359,18 +397,15 @@ class ImitationTask(object):
 
   def _calc_reward_pose(self):
     """Get the pose reward."""
-    env = self._env
-    robot = env.robot
-    sim_model = robot.quadruped
+    sim_model = self.quadruped
     ref_model = self._ref_model
-    pyb = self._get_pybullet_client()
 
     pose_err = 0.0
     num_joints = self._get_num_joints()
 
     for j in range(num_joints):
-      j_state_ref = pyb.getJointStateMultiDof(ref_model, j)
-      j_state_sim = pyb.getJointStateMultiDof(sim_model, j)
+      j_state_ref = self.pybullet_client.getJointStateMultiDof(ref_model, j)
+      j_state_sim = self.pybullet_client.getJointStateMultiDof(sim_model, j)
       j_pose_ref = np.array(j_state_ref[0])
       j_pose_sim = np.array(j_state_sim[0])
 
@@ -389,18 +424,15 @@ class ImitationTask(object):
 
   def _calc_reward_velocity(self):
     """Get the velocity reward."""
-    env = self._env
-    robot = env.robot
-    sim_model = robot.quadruped
+    sim_model = self.quadruped
     ref_model = self._ref_model
-    pyb = self._get_pybullet_client()
 
     vel_err = 0.0
     num_joints = self._get_num_joints()
 
     for j in range(num_joints):
-      j_state_ref = pyb.getJointStateMultiDof(ref_model, j)
-      j_state_sim = pyb.getJointStateMultiDof(sim_model, j)
+      j_state_ref = self.pybullet_client.getJointStateMultiDof(ref_model, j)
+      j_state_sim = self.pybullet_client.getJointStateMultiDof(sim_model, j)
       j_vel_ref = np.array(j_state_ref[1])
       j_vel_sim = np.array(j_state_sim[1])
 
@@ -419,11 +451,8 @@ class ImitationTask(object):
 
   def _calc_reward_end_effector(self):
     """Get the end effector reward."""
-    env = self._env
-    robot = env.robot
-    sim_model = robot.quadruped
+    sim_model = self.quadruped
     ref_model = self._ref_model
-    pyb = self._get_pybullet_client()
 
     root_pos_ref = self._get_ref_base_position()
     root_rot_ref = self._get_ref_base_rotation()
@@ -440,10 +469,10 @@ class ImitationTask(object):
     height_err_scale = self._end_effector_height_err_scale
 
     for j in range(num_joints):
-      is_end_eff = (j in robot._foot_link_ids)
+      is_end_eff = (j in self._foot_link_ids)
       if (is_end_eff):
-        end_state_ref = pyb.getLinkState(ref_model, j)
-        end_state_sim = pyb.getLinkState(sim_model, j)
+        end_state_ref = self.pybullet_client.getLinkState(ref_model, j)
+        end_state_sim = self.pybullet_client.getLinkState(sim_model, j)
         end_pos_ref = np.array(end_state_ref[0])
         end_pos_sim = np.array(end_state_sim[0])
 
@@ -493,14 +522,11 @@ class ImitationTask(object):
 
   def _calc_reward_root_velocity(self):
     """Get the root velocity reward."""
-    env = self._env
-    robot = env.robot
-    sim_model = robot.quadruped
+    sim_model = self.quadruped
     ref_model = self._ref_model
-    pyb = self._get_pybullet_client()
 
-    root_vel_ref, root_ang_vel_ref = pyb.getBaseVelocity(ref_model)
-    root_vel_sim, root_ang_vel_sim = pyb.getBaseVelocity(sim_model)
+    root_vel_ref, root_ang_vel_ref = self.pybullet_client.getBaseVelocity(ref_model)
+    root_vel_sim, root_ang_vel_sim = self.pybullet_client.getBaseVelocity(sim_model)
     root_vel_ref = np.array(root_vel_ref)
     root_ang_vel_ref = np.array(root_ang_vel_ref)
     root_vel_sim = np.array(root_vel_sim)
@@ -550,44 +576,43 @@ class ImitationTask(object):
     Returns:
       Handle to the simulated model for the reference motion.
     """
-    ref_col = [1, 1, 1, self._draw_ref_model_alpha]
+    ref_col = [1, 1, 1, 0.5]
 
-    pyb = self._get_pybullet_client()
-    urdf_file = self._env.robot.GetURDFFile()
-    ref_model = pyb.loadURDF(urdf_file, useFixedBase=True)
+    urdf_file = self.GetURDFFile()
+    ref_model = self.pybullet_client.loadURDF(urdf_file, useFixedBase=True)
 
-    pyb.changeDynamics(ref_model, -1, linearDamping=0, angularDamping=0)
+    self.pybullet_client.changeDynamics(ref_model, -1, linearDamping=0, angularDamping=0)
 
-    pyb.setCollisionFilterGroupMask(
+    self.pybullet_client.setCollisionFilterGroupMask(
         ref_model, -1, collisionFilterGroup=0, collisionFilterMask=0)
 
-    pyb.changeDynamics(
+    self.pybullet_client.changeDynamics(
         ref_model,
         -1,
-        activationState=pyb.ACTIVATION_STATE_SLEEP +
-        pyb.ACTIVATION_STATE_ENABLE_SLEEPING +
-        pyb.ACTIVATION_STATE_DISABLE_WAKEUP)
+        activationState=self.pybullet_client.ACTIVATION_STATE_SLEEP +
+        self.pybullet_client.ACTIVATION_STATE_ENABLE_SLEEPING +
+        self.pybullet_client.ACTIVATION_STATE_DISABLE_WAKEUP)
 
-    pyb.changeVisualShape(ref_model, -1, rgbaColor=ref_col)
+    self.pybullet_client.changeVisualShape(ref_model, -1, rgbaColor=ref_col)
 
-    num_joints = pyb.getNumJoints(ref_model)
-    num_joints_sim = pyb.getNumJoints(self._env.robot.quadruped)
+    num_joints = self.pybullet_client.getNumJoints(ref_model)
+    num_joints_sim = self.pybullet_client.getNumJoints(self.quadruped)
     assert (
         num_joints == num_joints_sim
     ), "ref model must have the same number of joints as the simulated model."
 
     for j in range(num_joints):
-      pyb.setCollisionFilterGroupMask(
+      self.pybullet_client.setCollisionFilterGroupMask(
           ref_model, j, collisionFilterGroup=0, collisionFilterMask=0)
 
-      pyb.changeDynamics(
+      self.pybullet_client.changeDynamics(
           ref_model,
           j,
-          activationState=pyb.ACTIVATION_STATE_SLEEP +
-          pyb.ACTIVATION_STATE_ENABLE_SLEEPING +
-          pyb.ACTIVATION_STATE_DISABLE_WAKEUP)
+          activationState=self.pybullet_client.ACTIVATION_STATE_SLEEP +
+          self.pybullet_client.ACTIVATION_STATE_ENABLE_SLEEPING +
+          self.pybullet_client.ACTIVATION_STATE_DISABLE_WAKEUP)
 
-      pyb.changeVisualShape(ref_model, j, rgbaColor=ref_col)
+      self.pybullet_client.changeVisualShape(ref_model, j, rgbaColor=ref_col)
 
     return ref_model
 
@@ -600,9 +625,8 @@ class ImitationTask(object):
     self._joint_vel_size = np.zeros(num_joints, dtype=np.int32)
 
     for j in range(num_joints):
-      pyb = self._get_pybullet_client()
-      j_info = pyb.getJointInfo(self._ref_model, j)
-      j_state = pyb.getJointStateMultiDof(self._ref_model, j)
+      j_info = self.pybullet_client.getJointInfo(self._ref_model, j)
+      j_state = self.pybullet_client.getJointStateMultiDof(self._ref_model, j)
 
       j_pose_idx = j_info[3]
       j_vel_idx = j_info[4]
@@ -734,8 +758,8 @@ class ImitationTask(object):
     if perturb_state:
       pose, vel = self._apply_state_perturb(pose, vel)
 
-    self._set_state(self._env.robot.quadruped, pose, vel)
-    self._env.robot.ReceiveObservation()
+    self._set_state(self.quadruped, pose, vel)
+    self.ReceiveObservation()
     return
 
   def _set_state(self, phys_model, pose, vel):
@@ -747,15 +771,14 @@ class ImitationTask(object):
       vel: velocity to be applied to the character
     """
     motion = self.get_active_motion()
-    pyb = self._get_pybullet_client()
 
     root_pos = motion.get_frame_root_pos(pose)
     root_rot = motion.get_frame_root_rot(pose)
     root_vel = motion.get_frame_root_vel(vel)
     root_ang_vel = motion.get_frame_root_ang_vel(vel)
 
-    pyb.resetBasePositionAndOrientation(phys_model, root_pos, root_rot)
-    pyb.resetBaseVelocity(phys_model, root_vel, root_ang_vel)
+    self.pybullet_client.resetBasePositionAndOrientation(phys_model, root_pos, root_rot)
+    self.pybullet_client.resetBaseVelocity(phys_model, root_vel, root_ang_vel)
 
     num_joints = self._get_num_joints()
     # p = []
@@ -771,32 +794,17 @@ class ImitationTask(object):
 
         j_pose = pose[q_idx:(q_idx + q_size)]
         j_vel = vel[dq_idx:(dq_idx + dq_size)]
-        pyb.resetJointStateMultiDof(phys_model, j, j_pose, j_vel)
-        # p.extend(j_pose.tolist())
-      # if j==3:
-      #   # derek to do:
-      #   if phys_model == 2:
-      #     foot_pos = [0]*3
-      #     state = pyb.getLinkState(phys_model, j)
-      #     base_pos = pyb.getBasePositionAndOrientation(self._env.robot.quadruped)[0]
-      #     foot_pos[0] = state[0][0] - base_pos[0]
-      #     foot_pos[1] = state[0][1] - base_pos[1]
-      #     foot_pos[2] = state[0][2] - base_pos[2]
-      #     print(foot_pos)
-    # print(p)
+        self.pybullet_client.resetJointStateMultiDof(phys_model, j, j_pose, j_vel)
+    
     return
-
-  def _get_pybullet_client(self):
-    """Get bullet client from the environment"""
-    return self._env._pybullet_client
 
   def _get_motion_time(self):
     """Get the time since the start of the reference motion."""
-    time = self._env.get_time_since_reset()
+    time = self.GetTimeSinceReset()
 
     # Needed to ensure that during deployment, the first timestep will be at
     # time = 0
-    if self._env.env_step_counter == 0:
+    if self.env_step_counter == 0:
       self._episode_start_time_offset = -time
 
     time += self._motion_time_offset
@@ -811,8 +819,7 @@ class ImitationTask(object):
 
   def _get_num_joints(self):
     """Get the number of joints in the character's body."""
-    pyb = self._get_pybullet_client()
-    return pyb.getNumJoints(self._ref_model)
+    return self.pybullet_client.getNumJoints(self._ref_model)
 
   def _get_joint_pose_idx(self, j):
     """Get the starting index of the pose data for a give joint in a pose array."""
@@ -856,26 +863,22 @@ class ImitationTask(object):
     return vel_size
 
   def _get_sim_base_position(self):
-    pyb = self._get_pybullet_client()
-    pos = pyb.getBasePositionAndOrientation(self._env.robot.quadruped)[0]
+    pos = self.pybullet_client.getBasePositionAndOrientation(self.quadruped)[0]
     pos = np.array(pos)
     return pos
 
   def _get_sim_base_rotation(self):
-    pyb = self._get_pybullet_client()
-    rotation = pyb.getBasePositionAndOrientation(self._env.robot.quadruped)[1]
+    rotation = self.pybullet_client.getBasePositionAndOrientation(self.quadruped)[1]
     rotation = np.array(rotation)
     return rotation
 
   def _get_ref_base_position(self):
-    pyb = self._get_pybullet_client()
-    pos = pyb.getBasePositionAndOrientation(self._ref_model)[0]
+    pos = self.pybullet_client.getBasePositionAndOrientation(self._ref_model)[0]
     pos = np.array(pos)
     return pos
 
   def _get_ref_base_rotation(self):
-    pyb = self._get_pybullet_client()
-    rotation = pyb.getBasePositionAndOrientation(self._ref_model)[1]
+    rotation = self.pybullet_client.getBasePositionAndOrientation(self._ref_model)[1]
     rotation = np.array(rotation)
     return rotation
 
@@ -1029,8 +1032,7 @@ class ImitationTask(object):
   def _build_sim_pose(self, phys_model):
     """Build  pose vector from simulated model."""
     pose = np.zeros(self.get_pose_size())
-    pyb = self._get_pybullet_client()
-    root_pos, root_rot = pyb.getBasePositionAndOrientation(phys_model)
+    root_pos, root_rot = self.pybullet_client.getBasePositionAndOrientation(phys_model)
     root_pos = np.array(root_pos)
     root_rot = np.array(root_rot)
 
@@ -1038,7 +1040,7 @@ class ImitationTask(object):
 
     num_joints = self._get_num_joints()
     for j in range(num_joints):
-      j_state_sim = pyb.getJointStateMultiDof(phys_model, j)
+      j_state_sim = self.pybullet_client.getJointStateMultiDof(phys_model, j)
       j_pose_sim = np.array(j_state_sim[0])
 
       j_size_sim = len(j_pose_sim)
@@ -1111,18 +1113,12 @@ class ImitationTask(object):
 
   def _rand_uniform(self, val_min, val_max, size=None):
     """Samples random float between [val_min, val_max]."""
-    if hasattr(self._env, "np_random"):
-      rand_val = self._env.np_random.uniform(val_min, val_max, size=size)
-    else:
-      rand_val = np.random.uniform(val_min, val_max, size=size)
+    rand_val = self.np_random.uniform(val_min, val_max, size=size)
     return rand_val
 
   def _randint(self, val_min, val_max, size=None):
     """Samples random integer between [val_min, val_max]."""
-    if hasattr(self._env, "np_random"):
-      rand_val = self._env.np_random.randint(val_min, val_max, size=size)
-    else:
-      rand_val = np.random.randint(val_min, val_max, size=size)
+    rand_val = self.np_random.randint(val_min, val_max, size=size)
     return rand_val
 
   def _randn(self, mean, std, size=None):
@@ -1131,11 +1127,7 @@ class ImitationTask(object):
     if size is None:
       size = []
 
-    if hasattr(self._env, "np_random"):
-      rand_val = self._env.np_random.randn(*size)
-    else:
-      rand_val = np.random.randn(*size)
-
+    rand_val = self.np_random.randn(*size)
     rand_val = std * rand_val + mean
     return rand_val
 
@@ -1241,9 +1233,9 @@ class ImitationTask(object):
     return perturb_pose, perturb_vel
 
   def _record_default_pose(self):
-    root_pos = self._env.robot.GetDefaultInitPosition()
-    root_rot = self._env.robot.GetDefaultInitOrientation()
-    joint_pose = self._env.robot.GetDefaultInitJointPose()
+    root_pos = self.GetDefaultInitPosition()
+    root_rot = self.GetDefaultInitOrientation()
+    joint_pose = self.GetDefaultInitJointPose()
 
     pose = np.concatenate([root_pos, root_rot, joint_pose])
 

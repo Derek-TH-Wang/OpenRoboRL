@@ -13,16 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from sim import sim_config
-from sim import pybullet_env
 from envs.env_wrappers import imitation_wrapper_env
 from envs.env_wrappers import observation_dictionary_to_array_wrapper
-from envs.env_wrappers import trajectory_generator_wrapper_env
-from envs.env_wrappers import simple_openloop
 from task import imitation_task
-from envs.utilities import controllable_env_randomizer_from_config
-from robots import laikago
-from robots import xr3
 
 
 def build_imitation_env(robot, motion_files, num_parallel_envs, mode,
@@ -31,35 +24,15 @@ def build_imitation_env(robot, motion_files, num_parallel_envs, mode,
 
   curriculum_episode_length_start = 20
   curriculum_episode_length_end = 600
-  
-  sim_params = sim_config.SimulationParameters()
-  sim_params.enable_rendering = enable_rendering
 
-  if robot == "xr3":
-    robot_class = xr3.XR3
-  elif robot == "laikago":
-    robot_class = laikago.Laikago
-
-  task = imitation_task.ImitationTask(ref_motion_filenames=motion_files,
+  env = imitation_task.ImitationTask(ref_motion_filenames=motion_files,
                                       enable_cycle_sync=True,
                                       tar_frame_steps=[1, 2, 10, 30],
                                       ref_state_init_prob=0.9,
-                                      warmup_time=0.25)
-
-  randomizers = []
-  if enable_randomizer:
-    randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(verbose=False)
-    randomizers.append(randomizer)
-
-  env = pybullet_env.PybulletEnv(sim_config=sim_params, robot_class=robot_class,
-                                            env_randomizers=randomizers, task=task)
+                                      warmup_time=0.25,
+                                      enable_randomizer=enable_randomizer)
 
   env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(env)
-  if robot == "xr3":
-    trajectory_generator=simple_openloop.XR3PoseOffsetGenerator(action_limit=xr3.UPPER_BOUND)
-  elif robot == "laikago":
-    trajectory_generator=simple_openloop.LaikagoPoseOffsetGenerator(action_limit=laikago.UPPER_BOUND)
-  env = trajectory_generator_wrapper_env.TrajectoryGeneratorWrapperEnv(env, trajectory_generator)
 
   if mode == "test":
       curriculum_episode_length_start = curriculum_episode_length_end

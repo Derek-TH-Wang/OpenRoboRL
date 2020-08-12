@@ -95,27 +95,18 @@ class Sensor(object):
     """Returns the robot instance."""
     return self._robot
 
-  def on_reset(self, env):
+  def on_reset(self):
     """A callback function for the reset event.
-
-    Args:
-      env: the environment who invokes this callback function.
     """
     pass
 
-  def on_step(self, env):
+  def on_step(self):
     """A callback function for the step event.
-
-    Args:
-      env: the environment who invokes this callback function.
     """
     pass
 
-  def on_terminate(self, env):
+  def on_terminate(self):
     """A callback function for the terminate event.
-
-    Args:
-      env: the environment who invokes this callback function.
     """
     pass
 

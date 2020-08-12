@@ -198,14 +198,14 @@ class BaseDisplacementSensor(sensor.BoxSpaceSensor):
     else:
       return np.array([dx, dy, dz])
 
-  def on_reset(self, env):
+  def on_reset(self):
     """See base class."""
     self._current_base_position = np.array(self._robot.GetBasePosition())
     self._last_base_position = np.array(self._robot.GetBasePosition())
     self._current_yaw = self._robot.GetBaseRollPitchYaw()[2]
     self._last_yaw = self._robot.GetBaseRollPitchYaw()[2]
 
-  def on_step(self, env):
+  def on_step(self):
     """See base class."""
     self._last_base_position = self._current_base_position
     self._current_base_position = np.array(self._robot.GetBasePosition())

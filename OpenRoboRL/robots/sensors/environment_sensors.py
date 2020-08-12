@@ -48,7 +48,6 @@ class LastActionSensor(sensor.BoxSpaceSensor):
       dtype: data type of sensor value
     """
     self._num_actions = num_actions
-    self._env = None
 
     super(LastActionSensor, self).__init__(name=name,
                                            shape=(self._num_actions,),
@@ -56,14 +55,11 @@ class LastActionSensor(sensor.BoxSpaceSensor):
                                            upper_bound=upper_bound,
                                            dtype=dtype)
 
-  def on_reset(self, env):
+  def on_reset(self):
     """From the callback, the sensor remembers the environment.
-
-    Args:
-      env: the environment who invokes this callback function.
     """
-    self._env = env
+    pass
 
   def _get_observation(self) -> _ARRAY:
     """Returns the last action of the environment."""
-    return self._env.last_action
+    return self._robot.last_action

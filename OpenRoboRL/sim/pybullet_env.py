@@ -17,42 +17,36 @@
 import collections
 import time
 import gym
-from gym import spaces
 from gym.utils import seeding
 import numpy as np
 import pybullet
 import pybullet_utils.bullet_client as bullet_client
 import pybullet_data as pd
-from robots.sensors import sensor
-from robots.sensors import space_utils
+from sim import sim_config
+from envs.utilities import controllable_env_randomizer_from_config
 
 
 _ACTION_EPS = 0.01
 _NUM_SIMULATION_ITERATION_STEPS = 300
 _LOG_BUFFER_LENGTH = 5000
 
+
 class PybulletEnv(gym.Env):
-  """The gym environment for the locomotion tasks."""
+  """The gym environment for the pybullet simulator."""
   metadata = {
       'render.modes': ['human', 'rgb_array'],
       'video.frames_per_second': 100
   }
 
   def __init__(self,
-               sim_config,
-               robot_class=None,
-               task=None,
-               env_randomizers=None):
+               time_step=0.001,
+               action_repeat=33,
+               on_rack=False,
+               enable_randomizer=True):
     """Initializes the locomotion gym environment.
 
     Args:
       gym_config: An instance of LocomotionGymConfig.
-      robot_class: A class of a robot. We provide a class rather than an
-        instance due to hard_reset functionality. Parameters are expected to be
-        configured with gin.
-      sensors: A list of environmental sensors for observation.
-      task: A callable function/class to calculate the reward and termination
-        condition. Takes the gym env as the argument when calling.
       env_randomizers: A list of EnvRandomizer(s). An EnvRandomizer may
         randomize the physical property of minitaur, change the terrrain during
         reset(), or add perturbation forces during step().
@@ -62,102 +56,65 @@ class PybulletEnv(gym.Env):
 
     """
 
+    self._env_randomizers = []
+    if enable_randomizer:
+      randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(verbose=False)
+      self._env_randomizers.append(randomizer)
+
     self.seed()
-    self._sim_config = sim_config
-    self._robot_class = robot_class
+    self._sim_config = sim_config.SimulationParameters()
 
-    if self._robot_class is None:
-      raise ValueError('robot_class cannot be None.')
-
-    # A dictionary containing the objects in the world other than the robot.
     self._world_dict = {}
-    self._task = task
-
-    self._env_randomizers = env_randomizers if env_randomizers else []
-
-    self._sensors = []
-    if isinstance(self._task, sensor.Sensor):
-      self._sensors.append(self._task)
 
     # Simulation related parameters.
-    self._num_action_repeat = sim_config.num_action_repeat
-    self._on_rack = sim_config.robot_on_rack
-    if self._num_action_repeat < 1:
+    self.num_action_repeat = action_repeat
+    self._on_rack = on_rack
+    if self.num_action_repeat < 1:
       raise ValueError('number of action repeats should be at least 1.')
-    self._sim_time_step = sim_config.sim_time_step_s
-    self._env_time_step = self._num_action_repeat * self._sim_time_step
+    self.sim_time_step = time_step
+    self._env_time_step = self.num_action_repeat * self.sim_time_step
     self._env_step_counter = 0
 
     self._num_bullet_solver_iterations = int(_NUM_SIMULATION_ITERATION_STEPS /
-                                             self._num_action_repeat)
-    self._is_render = sim_config.enable_rendering
+                                             self.num_action_repeat)
+    self._is_render = self._sim_config.enable_rendering
 
     # The wall-clock time at which the last frame is rendered.
     self._last_frame_time = 0.0
     self._show_reference_id = -1
     
     if self._is_render:
-      self._pybullet_client = bullet_client.BulletClient(
+      self.pybullet_client = bullet_client.BulletClient(
           connection_mode=pybullet.GUI)
       pybullet.configureDebugVisualizer(
           pybullet.COV_ENABLE_GUI,
-          sim_config.enable_rendering_gui)
+          self._sim_config.enable_rendering_gui)
       self._show_reference_id = pybullet.addUserDebugParameter("show reference",0,1,
-        self._task._draw_ref_model_alpha)
+        self._sim_config.draw_ref_model_alpha)
       self._delay_id = pybullet.addUserDebugParameter("delay",0,0.3,0)
     else:
-      self._pybullet_client = bullet_client.BulletClient(connection_mode=pybullet.DIRECT)
-    self._pybullet_client.setAdditionalSearchPath(pd.getDataPath())
-    if sim_config.egl_rendering:
-      self._pybullet_client.loadPlugin('eglRendererPlugin')
-
-    # The action list contains the name of all actions.
-    action_upper_bound = []
-    action_lower_bound = []
-    action_config = robot_class.ACTION_CONFIG
-    action_upper_bound = action_config[0].copy()
-    action_lower_bound = action_config[1].copy()
-
-    self.action_space = spaces.Box(
-        np.array(action_lower_bound),
-        np.array(action_upper_bound),
-        dtype=np.float32)
+      self.pybullet_client = bullet_client.BulletClient(connection_mode=pybullet.DIRECT)
+    self.pybullet_client.setAdditionalSearchPath(pd.getDataPath())
+    if self._sim_config.egl_rendering:
+      self.pybullet_client.loadPlugin('eglRendererPlugin')
 
     # Set the default render options.
-    self._camera_dist = sim_config.camera_distance
-    self._camera_yaw = sim_config.camera_yaw
-    self._camera_pitch = sim_config.camera_pitch
-    self._render_width = sim_config.render_width
-    self._render_height = sim_config.render_height
+    self._camera_dist = self._sim_config.camera_distance
+    self._camera_yaw = self._sim_config.camera_yaw
+    self._camera_pitch = self._sim_config.camera_pitch
+    self._render_width = self._sim_config.render_width
+    self._render_height = self._sim_config.render_height
 
     self._hard_reset = True
     self.reset()
-
-    self._hard_reset = sim_config.enable_hard_reset
-
-    # Construct the observation space from the list of sensors. Note that we
-    # will reconstruct the observation_space after the robot is created.
-    self.observation_space = (
-        space_utils.convert_sensors_to_gym_space_dictionary(self.all_sensors()))
+    self._hard_reset = self._sim_config.enable_hard_reset
 
   def close(self):
-    if hasattr(self, '_robot') and self._robot:
-      self._robot.Terminate()
+    raise NotImplementedError()
 
   def seed(self, seed=None):
     self.np_random, self.np_random_seed = seeding.np_random(seed)
     return [self.np_random_seed]
-
-  def all_sensors(self):
-    """Returns all robot and environmental sensors."""
-    return self._robot.GetAllSensors() + self._sensors
-
-  def sensor_by_name(self, name):
-    """Returns the sensor with the given name, or None if not exist."""
-    for sensor_ in self.all_sensors():
-      if sensor_.get_name() == name:
-        return sensor_
-    return None
 
   def reset(self,
             initial_motor_angles=None,
@@ -179,57 +136,49 @@ class PybulletEnv(gym.Env):
       A numpy array contains the initial observation after reset.
     """
     if self._is_render:
-      self._pybullet_client.configureDebugVisualizer(
-          self._pybullet_client.COV_ENABLE_RENDERING, 0)
+      self.pybullet_client.configureDebugVisualizer(
+          self.pybullet_client.COV_ENABLE_RENDERING, 0)
 
     # Clear the simulation world and rebuild the robot interface.
     if self._hard_reset:
-      self._pybullet_client.resetSimulation()
-      self._pybullet_client.setPhysicsEngineParameter(
+      self.pybullet_client.resetSimulation()
+      self.pybullet_client.setPhysicsEngineParameter(
           numSolverIterations=self._num_bullet_solver_iterations)
-      self._pybullet_client.setTimeStep(self._sim_time_step)
-      self._pybullet_client.setGravity(0, 0, -10)
+      self.pybullet_client.setTimeStep(self.sim_time_step)
+      self.pybullet_client.setGravity(0, 0, -10)
 
       # Rebuild the world.
       self._world_dict = {
-          "ground": self._pybullet_client.loadURDF("plane_implicit.urdf")
+          "ground": self.pybullet_client.loadURDF("plane_implicit.urdf")
       }
 
-      # Rebuild the robot
-      self._robot = self._robot_class(
-          pybullet_client=self._pybullet_client,
-          on_rack=self._on_rack)
-
     # Reset the pose of the robot.
-    self._robot.Reset(
-        reload_urdf=False,
-        default_motor_angles=initial_motor_angles,
-        reset_time=reset_duration)
+    obs = self.reset_robot(reload_urdf=self._hard_reset, 
+                            default_motor_angles=initial_motor_angles, 
+                            reset_time=reset_duration)
 
-    self._pybullet_client.setPhysicsEngineParameter(enableConeFriction=0)
+    self.pybullet_client.setPhysicsEngineParameter(enableConeFriction=0)
     self._env_step_counter = 0
     if reset_visualization_camera:
-      self._pybullet_client.resetDebugVisualizerCamera(self._camera_dist,
+      self.pybullet_client.resetDebugVisualizerCamera(self._camera_dist,
                                                        self._camera_yaw,
                                                        self._camera_pitch,
                                                        [0, 0, 0])
-    self._last_action = np.zeros(self.action_space.shape)
 
     if self._is_render:
-      self._pybullet_client.configureDebugVisualizer(
-          self._pybullet_client.COV_ENABLE_RENDERING, 1)
+      self.pybullet_client.configureDebugVisualizer(
+          self.pybullet_client.COV_ENABLE_RENDERING, 1)
 
-    for s in self.all_sensors():
-      s.on_reset(self)
-
-    if self._task and hasattr(self._task, 'reset'):
-      self._task.reset(self)
+    self.reset_task()
 
     # Loop over all env randomizers.
     for env_randomizer in self._env_randomizers:
       env_randomizer.randomize_env(self)
 
-    return self._get_observation()
+    return obs
+
+  def reset_robot(self, reload_urdf, default_motor_angles, reset_time):
+    raise NotImplementedError()
 
   def step(self, action):
     """Step forward the simulation, given the action.
@@ -243,8 +192,7 @@ class PybulletEnv(gym.Env):
         gym level, since they are specific to Minitaur.
 
     Returns:
-      observations: The observation dictionary. The keys are the sensor names
-        and the values are the sensor readings.
+      observations: The observation dictionary.
       reward: The reward for the current state-action pair.
       done: Whether the episode has ended.
       info: A dictionary that stores diagnostic information.
@@ -253,9 +201,6 @@ class PybulletEnv(gym.Env):
       ValueError: The action dimension is not the same as the number of motors.
       ValueError: The magnitude of actions is out of bounds.
     """
-    self._last_base_position = self._robot.GetBasePosition()
-    self._last_action = action
-
     if self._is_render:
       # Sleep, otherwise the computation takes less time than real time,
       # which will make the visualization like a fast-forward video.
@@ -264,65 +209,67 @@ class PybulletEnv(gym.Env):
       time_to_sleep = self._env_time_step - time_spent
       if time_to_sleep > 0:
         time.sleep(time_to_sleep)
-      base_pos = self._robot.GetBasePosition()
+      base_pos = self.GetBasePosition()
 
       # Also keep the previous orientation of the camera set by the user.
       [yaw, pitch,
-       dist] = self._pybullet_client.getDebugVisualizerCamera()[8:11]
-      self._pybullet_client.resetDebugVisualizerCamera(dist, yaw, pitch,
+       dist] = self.pybullet_client.getDebugVisualizerCamera()[8:11]
+      self.pybullet_client.resetDebugVisualizerCamera(dist, yaw, pitch,
                                                        base_pos)
-      self._pybullet_client.configureDebugVisualizer(
-        self._pybullet_client.COV_ENABLE_SINGLE_STEP_RENDERING,1)
-      alpha = self._pybullet_client.readUserDebugParameter(self._show_reference_id)
+      self.pybullet_client.configureDebugVisualizer(
+        self.pybullet_client.COV_ENABLE_SINGLE_STEP_RENDERING,1)
       
-      ref_col = [1, 1, 1, alpha]
-      self._pybullet_client.changeVisualShape(self._task._ref_model, -1, rgbaColor=ref_col)
-      for l in range (self._pybullet_client.getNumJoints(self._task._ref_model)):
-      	self._pybullet_client.changeVisualShape(self._task._ref_model, l, rgbaColor=ref_col)
+      # alpha = self.pybullet_client.readUserDebugParameter(self._show_reference_id)
+      # ref_col = [1, 1, 1, alpha]
+      # self.pybullet_client.changeVisualShape(self._task._ref_model, -1, rgbaColor=ref_col)
+      # for l in range (self.pybullet_client.getNumJoints(self._task._ref_model)):
+      # 	self.pybullet_client.changeVisualShape(self._task._ref_model, l, rgbaColor=ref_col)
     
-      delay = self._pybullet_client.readUserDebugParameter(self._delay_id)
+      delay = self.pybullet_client.readUserDebugParameter(self._delay_id)
       if (delay>0):
         time.sleep(delay)
     for env_randomizer in self._env_randomizers:
       env_randomizer.randomize_step(self)
 
-    # robot class and put the logics here.
-    self._robot.Step(action)
+    obs = self.set_action(action)
+    reward = self.compute_reward()
+    done = self.is_done()
 
-    reward = self._reward()
-
-    for s in self.all_sensors():
-      s.on_step(self)
-
-    if self._task and hasattr(self._task, 'update'):
-      self._task.update(self)
-
-    done = self._termination()
     self._env_step_counter += 1
-    if done:
-      self._robot.Terminate()
-    return self._get_observation(), reward, done, {}
 
-  def render(self, mode='rgb_array'):
+    return obs, reward, done, {}
+
+  def compute_reward(self):
+    raise NotImplementedError()
+
+  def GetBasePosition(self):
+    raise NotImplementedError()
+
+  def set_action(self, action):
+    raise NotImplementedError()
+
+  def is_done(self):
+    raise NotImplementedError()
+
+  def render(self, base_pos, mode='rgb_array'):
     if mode != 'rgb_array':
       raise ValueError('Unsupported render mode:{}'.format(mode))
-    base_pos = self._robot.GetBasePosition()
-    view_matrix = self._pybullet_client.computeViewMatrixFromYawPitchRoll(
+    view_matrix = self.pybullet_client.computeViewMatrixFromYawPitchRoll(
         cameraTargetPosition=base_pos,
         distance=self._camera_dist,
         yaw=self._camera_yaw,
         pitch=self._camera_pitch,
         roll=0,
         upAxisIndex=2)
-    proj_matrix = self._pybullet_client.computeProjectionMatrixFOV(
+    proj_matrix = self.pybullet_client.computeProjectionMatrixFOV(
         fov=60,
         aspect=float(self._render_width) / self._render_height,
         nearVal=0.1,
         farVal=100.0)
-    (_, _, px, _, _) = self._pybullet_client.getCameraImage(
+    (_, _, px, _, _) = self.pybullet_client.getCameraImage(
         width=self._render_width,
         height=self._render_height,
-        renderer=self._pybullet_client.ER_BULLET_HARDWARE_OPENGL,
+        renderer=self.pybullet_client.ER_BULLET_HARDWARE_OPENGL,
         viewMatrix=view_matrix,
         projectionMatrix=proj_matrix)
     rgb_array = np.array(px)
@@ -353,36 +300,6 @@ class PybulletEnv(gym.Env):
   def world_dict(self, new_dict):
     self._world_dict = new_dict.copy()
 
-  def _termination(self):
-    if not self._robot.is_safe:
-      return True
-
-    if self._task and hasattr(self._task, 'done'):
-      return self._task.done(self)
-
-    for s in self.all_sensors():
-      s.on_terminate(self)
-
-    return False
-
-  def _reward(self):
-    if self._task:
-      return self._task(self)
-    return 0
-
-  def _get_observation(self):
-    """Get observation of this environment from a list of sensors.
-
-    Returns:
-      observations: sensory observation in the numpy array format
-    """
-    sensors_dict = {}
-    for s in self.all_sensors():
-      sensors_dict[s.get_name()] = s.get_observation()
-
-    observations = collections.OrderedDict(sorted(list(sensors_dict.items())))
-    return observations
-
   def set_time_step(self, num_action_repeat, sim_step=0.001):
     """Sets the time step of the environment.
 
@@ -398,31 +315,18 @@ class PybulletEnv(gym.Env):
     """
     if num_action_repeat < 1:
       raise ValueError('number of action repeats should be at least 1.')
-    self._sim_time_step = sim_step
-    self._num_action_repeat = num_action_repeat
+    self.sim_time_step = sim_step
+    self.num_action_repeat = num_action_repeat
     self._env_time_step = sim_step * num_action_repeat
     self._num_bullet_solver_iterations = (
-        _NUM_SIMULATION_ITERATION_STEPS / self._num_action_repeat)
-    self._pybullet_client.setPhysicsEngineParameter(
+        _NUM_SIMULATION_ITERATION_STEPS / self.num_action_repeat)
+    self.pybullet_client.setPhysicsEngineParameter(
         numSolverIterations=int(np.round(self._num_bullet_solver_iterations)))
-    self._pybullet_client.setTimeStep(self._sim_time_step)
-    self._robot.SetTimeSteps(self._num_action_repeat, self._sim_time_step)
+    self.pybullet_client.setTimeStep(self.sim_time_step)
 
-  def get_time_since_reset(self):
-    """Get the time passed (in seconds) since the last reset.
-
-    Returns:
-      Time in seconds since the last reset.
-    """
-    return self._robot.GetTimeSinceReset()
-
-  @property
-  def pybullet_client(self):
-    return self._pybullet_client
-
-  @property
-  def robot(self):
-    return self._robot
+  # @property
+  # def pybullet_client(self):
+  #   return self.pybullet_client
 
   @property
   def env_step_counter(self):
@@ -433,17 +337,5 @@ class PybulletEnv(gym.Env):
     return self._hard_reset
 
   @property
-  def last_action(self):
-    return self._last_action
-
-  @property
   def env_time_step(self):
     return self._env_time_step
-
-  @property
-  def task(self):
-    return self._task
-
-  @property
-  def robot_class(self):
-    return self._robot_class

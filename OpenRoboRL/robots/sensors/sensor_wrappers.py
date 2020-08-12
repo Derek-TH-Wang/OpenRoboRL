@@ -45,8 +45,8 @@ class SensorWrapper(sensor.BoxSpaceSensor):
     super(SensorWrapper, self).__init__(**kwargs)
     self._wrapped_sensor = wrapped_sensor
 
-  def __call__(self, env):
-    return self._wrapped_sensor(env)
+  def __call__(self):
+    return self._wrapped_sensor()
 
   def __getattr__(self, attr):
     return getattr(self._wrapped_sensor, attr)
@@ -59,29 +59,20 @@ class SensorWrapper(sensor.BoxSpaceSensor):
     """Returns the robot instance."""
     return self._wrapped_sensor.get_robot()
 
-  def on_reset(self, env) -> None:
+  def on_reset(self) -> None:
     """A callback function for the reset event.
-
-    Args:
-      env: the environment who invokes this callback function.
     """
-    self._wrapped_sensor.on_reset(env)
+    self._wrapped_sensor.on_reset()
 
-  def on_step(self, env) -> None:
+  def on_step(self) -> None:
     """A callback function for the step event.
-
-    Args:
-      env: the environment who invokes this callback function.
     """
-    self._wrapped_sensor.on_step(env)
+    self._wrapped_sensor.on_step()
 
-  def on_terminate(self, env) -> None:
+  def on_terminate(self) -> None:
     """A callback function for the terminate event.
-
-    Args:
-      env: the environment who invokes this callback function.
     """
-    self._wrapped_sensor.on_terminate(env)
+    self._wrapped_sensor.on_terminate()
 
 class HistoricSensorWrapper(SensorWrapper):
   """A sensor wrapper for maintaining the history of the sensor."""
@@ -128,25 +119,19 @@ class HistoricSensorWrapper(SensorWrapper):
                                                 upper_bound=upper_bound,
                                                 wrapped_sensor=wrapped_sensor)
 
-  def on_reset(self, env) -> None:
+  def on_reset(self) -> None:
     """A callback for the reset event that initializes the history buffer.
-
-    Args:
-      env: the environment who invokes this callback function (unused)
     """
-    super(HistoricSensorWrapper, self).on_reset(env)
+    super(HistoricSensorWrapper, self).on_reset()
 
     self._history_buffer = collections.deque(maxlen=self._num_history)
     for _ in range(self._num_history):
       self._history_buffer.appendleft(self._wrapped_sensor.get_observation())
 
-  def on_step(self, env):
+  def on_step(self):
     """A callback for the step event that updates the history buffer.
-
-    Args:
-      env: the environment who invokes this callback function (unused)
     """
-    super(HistoricSensorWrapper, self).on_step(env)
+    super(HistoricSensorWrapper, self).on_step()
     self._history_buffer.appendleft(self._wrapped_sensor.get_observation())
 
   def get_observation(self) -> _ARRAY:
