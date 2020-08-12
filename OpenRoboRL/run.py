@@ -30,7 +30,7 @@ from stable_baselines.common.callbacks import CheckpointCallback
 TIMESTEPS_PER_ACTORBATCH = 4096
 OPTIM_BATCHSIZE = 256
 
-ENABLE_ENV_RANDOMIZER = True
+ENABLE_ENV_RANDOMIZER = False
 
 ROBOT = "laikago"
 

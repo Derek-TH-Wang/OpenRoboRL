@@ -29,7 +29,7 @@ from task import motion_util
 from utils import transformations
 from robots import laikago
 
-T_STEP = 0.0025
+T_STEP = 0.001
 NUM_ACTION_REPEAT = 33
 
 
@@ -296,7 +296,6 @@ class ImitationTask(laikago.Laikago):
 
   def build_target_obs(self):
     """Constructs the target observations, consisting of a sequence of
-
     target frames for future timesteps. The tartet poses to include is
     specified by self._tar_frame_steps.
 

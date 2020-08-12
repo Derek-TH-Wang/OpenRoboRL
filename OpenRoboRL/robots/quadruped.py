@@ -186,7 +186,6 @@ class Quadruped(pybullet_env.PybulletEnv):
     self._enable_action_interpolation = enable_action_interpolation
     self._enable_action_filter = enable_action_filter
     self._filter_action = None
-    self._last_action = np.array(self.GetDefaultInitJointPose())
 
     if not motor_model_class:
       raise ValueError("Must provide a motor model class!")
@@ -229,7 +228,7 @@ class Quadruped(pybullet_env.PybulletEnv):
 
     super(Quadruped, self).__init__(on_rack=on_rack, enable_randomizer=enable_randomizer)
 
-    self.reset_robot(reload_urdf=False, reset_time=-1.0)
+    # self.reset_robot(reload_urdf=False, reset_time=-1.0)
     self.ReceiveObservation()
 
     return
@@ -462,7 +461,7 @@ class Quadruped(pybullet_env.PybulletEnv):
     self._state_action_counter = 0
     self._is_safe = True
     self._filter_action = None
-    self._last_action = np.array(self.GetDefaultInitJointPose())
+    self._last_action = np.zeros(self.action_space.shape)
 
     self._SettleDownForReset(default_motor_angles, reset_time)
 
