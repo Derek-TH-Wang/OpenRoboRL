@@ -15,8 +15,6 @@
 
 """Pybullet simulation of a Mini_Cheetah robot."""
 import math
-import typing
-import os
 import re
 import numpy as np
 from gym import spaces
@@ -58,13 +56,8 @@ INIT_RACK_POSITION = [0, 0, 1]
 INIT_POSITION = [0, 0, 0.28]
 INIT_EUL = [0.0, 0.0, 0.0, 1.0]
 JOINT_DIRECTIONS = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])  # to be done
-HIP_JOINT_OFFSET = 0.0
-UPPER_LEG_JOINT_OFFSET = 0.0  # to be done
-KNEE_JOINT_OFFSET = 0.0  # to be done
 DOFS_PER_LEG = 3
-JOINT_OFFSETS = np.array(
-    [HIP_JOINT_OFFSET, UPPER_LEG_JOINT_OFFSET, KNEE_JOINT_OFFSET] * 4)
-PI = math.pi
+JOINT_OFFSETS = np.array([0.0, 0.0, 0.0] * 4)
 
 _DEFAULT_HIP_POSITIONS = (
     (0.38, -0.1161, 0),
@@ -80,19 +73,8 @@ HIP_D_GAIN = 1.0
 KNEE_P_GAIN = 80.0
 KNEE_D_GAIN = 1.0
 
-XR3_DEFAULT_ABDUCTION_ANGLE = 0
-XR3_DEFAULT_HIP_ANGLE = -0.78
-XR3_DEFAULT_KNEE_ANGLE = 1.74
-
 # Bases on the readings from Laikago's default pose.
-INIT_MOTOR_ANGLES = np.array([
-    XR3_DEFAULT_ABDUCTION_ANGLE,
-    XR3_DEFAULT_HIP_ANGLE,
-    XR3_DEFAULT_KNEE_ANGLE
-] * NUM_LEGS)
-
-UPPER_BOUND = 6.28318548203
-LOWER_BOUND = -6.28318548203
+INIT_MOTOR_ANGLES = np.array([0, -0.78, 1.74] * NUM_LEGS)
 
 sensors = [
     sensor_wrappers.HistoricSensorWrapper(
@@ -102,6 +84,10 @@ sensors = [
     sensor_wrappers.HistoricSensorWrapper(
         wrapped_sensor=environment_sensors.LastActionSensor(num_actions=NUM_MOTORS), num_history=3)
 ]
+
+UPPER_BOUND = 6.28318548203
+LOWER_BOUND = -6.28318548203
+
 observation_space = (
     space_utils.convert_sensors_to_gym_space_dictionary(sensors))
 action_space = spaces.Box(
@@ -109,11 +95,5 @@ action_space = spaces.Box(
     np.array([UPPER_BOUND]*12),
     dtype=np.float32)
 
-motor_kp = [ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,
-            ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,
-            ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN,
-            ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN]
-motor_kd = [ABDUCTION_D_GAIN, HIP_D_GAIN, KNEE_D_GAIN,
-            ABDUCTION_D_GAIN, HIP_D_GAIN, KNEE_D_GAIN,
-            ABDUCTION_D_GAIN, HIP_D_GAIN, KNEE_D_GAIN,
-            ABDUCTION_D_GAIN, HIP_D_GAIN, KNEE_D_GAIN]
+motor_kp = [ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN] * NUM_LEGS
+motor_kd = [ABDUCTION_D_GAIN, HIP_D_GAIN, KNEE_D_GAIN] * NUM_LEGS
