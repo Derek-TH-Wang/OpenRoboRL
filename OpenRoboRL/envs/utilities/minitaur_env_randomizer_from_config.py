@@ -60,35 +60,26 @@ class MinitaurEnvRandomizerFromConfig(env_randomizer_base.EnvRandomizerBase):
       self._randomization_function_dict[param_name](
           lower_bound=random_range[0], upper_bound=random_range[1])
 
-  def _get_robot_from_env(self, env):
-    if hasattr(env, "minitaur"):  #  Compabible with v1 envs.
-      return env.minitaur
-    elif hasattr(env, "robot"):  # Compatible with v2 envs.
-      return env.robot
-    else:
-      return None
-
   def _build_randomization_function_dict(self, env):
     func_dict = {}
-    robot = self._get_robot_from_env(env)
     func_dict["mass"] = functools.partial(
-        self._randomize_masses, minitaur=robot)
+        self._randomize_masses, minitaur=env)
     func_dict["inertia"] = functools.partial(
-        self._randomize_inertia, minitaur=robot)
+        self._randomize_inertia, minitaur=env)
     func_dict["latency"] = functools.partial(
-        self._randomize_latency, minitaur=robot)
+        self._randomize_latency, minitaur=env)
     func_dict["joint friction"] = functools.partial(
-        self._randomize_joint_friction, minitaur=robot)
+        self._randomize_joint_friction, minitaur=env)
     func_dict["motor friction"] = functools.partial(
-        self._randomize_motor_friction, minitaur=robot)
+        self._randomize_motor_friction, minitaur=env)
     func_dict["restitution"] = functools.partial(
-        self._randomize_contact_restitution, minitaur=robot)
+        self._randomize_contact_restitution, minitaur=env)
     func_dict["lateral friction"] = functools.partial(
-        self._randomize_contact_friction, minitaur=robot)
+        self._randomize_contact_friction, minitaur=env)
     func_dict["battery"] = functools.partial(
-        self._randomize_battery_level, minitaur=robot)
+        self._randomize_battery_level, minitaur=env)
     func_dict["motor strength"] = functools.partial(
-        self._randomize_motor_strength, minitaur=robot)
+        self._randomize_motor_strength, minitaur=env)
     # Settinmg control step needs access to the environment.
     func_dict["control step"] = functools.partial(
         self._randomize_control_step, env=env)

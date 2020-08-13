@@ -34,7 +34,7 @@ OPTIM_BATCHSIZE = 256
 
 ENABLE_ENV_RANDOMIZER = False
 
-ROBOT = "laikago"
+ROBOT = "mini_cheetah"
 
 
 def set_rand_seed(seed=None):
@@ -50,19 +50,18 @@ def set_rand_seed(seed=None):
     return
 
 
-def build_env(robot, motion_files, num_parallel_envs, mode,
-              enable_randomizer, enable_rendering):
+def build_env(robot, motion_files, num_parallel_envs, mode, enable_rendering):
     assert len(motion_files) > 0
 
     curriculum_episode_length_start = 20
     curriculum_episode_length_end = 600
 
-    env = imitation_task.ImitationTask(ref_motion_filenames=motion_files,
+    env = imitation_task.ImitationTask(robot,
+                                       ref_motion_filenames=motion_files,
                                        enable_cycle_sync=True,
                                        tar_frame_steps=[1, 2, 10, 30],
                                        ref_state_init_prob=0.9,
-                                       warmup_time=0.25,
-                                       enable_randomizer=enable_randomizer)
+                                       warmup_time=0.25,)
 
     env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(
         env)
@@ -165,9 +164,9 @@ def test(model, env, num_procs, num_episodes=None):
 
 def main():
     arg_parser = argparse.ArgumentParser()
-    if ROBOT == "xr3":
+    if ROBOT == "mini_cheetah":
         arg_parser.add_argument("--robot", dest="robot",
-                                type=str, default="xr3")
+                                type=str, default="mini_cheetah")
         arg_parser.add_argument("--motion_file", dest="motion_file", type=str,
                                 default="OpenRoboRL/learning/data/motions/dog_trot_xr3.txt")
         arg_parser.add_argument("--model_file", dest="model_file", type=str,
@@ -199,12 +198,11 @@ def main():
     num_procs = MPI.COMM_WORLD.Get_size()
     os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
 
-    enable_env_rand = ENABLE_ENV_RANDOMIZER and (args.mode != "test")
+    # enable_env_rand = ENABLE_ENV_RANDOMIZER and (args.mode != "test") derektodo
     env = build_env(robot=args.robot,
                     motion_files=[args.motion_file],
                     num_parallel_envs=num_procs,
                     mode=args.mode,
-                    enable_randomizer=enable_env_rand,
                     enable_rendering=args.visualize)
 
     model = build_model(env=env,

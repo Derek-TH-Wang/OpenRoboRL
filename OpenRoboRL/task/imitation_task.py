@@ -26,17 +26,16 @@ import numpy as np
 from task import pose3d
 from task import motion_data
 from task import motion_util
+from robots import quadruped
 from utils import transformations
-from robots import laikago
-
-T_STEP = 0.001
-NUM_ACTION_REPEAT = 33
 
 
-class ImitationTask(laikago.Laikago):
+class ImitationTask(quadruped.Quadruped):
+# class ImitationTask(mini_cheetah.Mini_Cheetah):
   """Imitation reference motion task."""
 
   def __init__(self,
+               robot,
                weight=1.0,
                ref_motion_filenames=None,
                enable_cycle_sync=True,
@@ -59,8 +58,7 @@ class ImitationTask(laikago.Laikago):
                root_pose_err_scale=20,
                root_velocity_err_scale=2,
                perturb_init_state_prob=0.0,
-               tar_obs_noise=None,
-               enable_randomizer = True):
+               tar_obs_noise=None,):
     """Initializes the task.
 
     Args:
@@ -158,9 +156,7 @@ class ImitationTask(laikago.Laikago):
     self._root_pose_err_scale = root_pose_err_scale
     self._root_velocity_err_scale = root_velocity_err_scale
 
-    super(ImitationTask, self).__init__(time_step = T_STEP, 
-                                        action_repeat = NUM_ACTION_REPEAT,
-                                        enable_randomizer=enable_randomizer)
+    super(ImitationTask, self).__init__(robot)
 
     return
 
