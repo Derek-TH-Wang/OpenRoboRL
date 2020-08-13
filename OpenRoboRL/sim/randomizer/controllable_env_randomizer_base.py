@@ -15,7 +15,7 @@
 
 """Base class for controllable environment randomizer."""
 
-from envs.utilities import env_randomizer_base
+from sim.randomizer import env_randomizer_base
 
 
 class ControllableEnvRandomizerBase(env_randomizer_base.EnvRandomizerBase):

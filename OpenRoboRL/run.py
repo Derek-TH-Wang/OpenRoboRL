@@ -34,7 +34,7 @@ OPTIM_BATCHSIZE = 256
 
 ENABLE_ENV_RANDOMIZER = False
 
-ROBOT = "mini_cheetah"
+ROBOT = "laikago"
 
 
 def set_rand_seed(seed=None):

@@ -25,8 +25,8 @@ import functools
 import numpy as np
 import tensorflow as tf
 
-from envs.utilities import controllable_env_randomizer_base
-from envs.utilities import minitaur_env_randomizer_config
+from sim.randomizer import controllable_env_randomizer_base
+from sim.randomizer import minitaur_env_randomizer_config
 
 SIMULATION_TIME_STEP = 0.001
 NUM_LEGS = 4

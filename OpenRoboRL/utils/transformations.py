@@ -1097,7 +1097,7 @@ def euler_from_quaternion(quaternion, axes='sxyz'):
     return euler_from_matrix(quaternion_matrix(quaternion), axes)
 
 
-def quaternion_from_euler(ai, aj, ak, axes='sxyz'):
+def quaternion_from_euler(eul, axes='sxyz'):
     """Return quaternion from Euler angles and axis sequence.
 
     ai, aj, ak : Euler's roll, pitch and yaw angles
@@ -1108,6 +1108,9 @@ def quaternion_from_euler(ai, aj, ak, axes='sxyz'):
     True
 
     """
+    ai = eul[0]
+    aj = eul[1]
+    ak = eul[2]
     try:
         firstaxis, parity, repetition, frame = _AXES2TUPLE[axes.lower()]
     except (AttributeError, KeyError):

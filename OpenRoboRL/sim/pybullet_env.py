@@ -23,7 +23,7 @@ import pybullet
 import pybullet_utils.bullet_client as bullet_client
 import pybullet_data as pd
 from sim import sim_config
-from envs.utilities import controllable_env_randomizer_from_config
+from sim.randomizer import controllable_env_randomizer_from_config
 
 
 _NUM_SIMULATION_ITERATION_STEPS = 300

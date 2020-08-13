@@ -362,6 +362,277 @@ class Quadruped(pybullet_env.PybulletEnv):
 
         return observations
 
+    def _LoadRobotURDF(self):
+        """Loads the URDF file for the robot."""
+        urdf_file = self.GetURDFFile()
+        if self._self_collision_enabled:
+            self.quadruped = self.pybullet_client.loadURDF(
+                urdf_file,
+                self._GetDefaultInitPosition(),
+                self.GetDefaultInitOrientation(),
+                flags=self.pybullet_client.URDF_USE_SELF_COLLISION)
+        else:
+            self.quadruped = self.pybullet_client.loadURDF(
+                urdf_file, self.GetDefaultInitPosition(),
+                self.GetDefaultInitOrientation())
+
+    def _BuildUrdfIds(self):
+        """Build the link Ids from its name in the URDF file.
+
+        Raises:
+          ValueError: Unknown category of the joint name.
+        """
+        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
+        self._chassis_link_ids = [-1]
+        self._leg_link_ids = []
+        self._motor_link_ids = []
+        self._knee_link_ids = []
+        self._foot_link_ids = []
+
+        for i in range(num_joints):
+            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
+            joint_name = joint_info[1].decode("UTF-8")
+            joint_id = self._joint_name_to_id[joint_name]
+            if self.pattern[0].match(joint_name):
+                self._chassis_link_ids.append(joint_id)
+            elif self.pattern[1].match(joint_name):
+                self._motor_link_ids.append(joint_id)
+            # We either treat the lower leg or the toe as the foot link, depending on
+            # the urdf version used.
+            elif self.pattern[2].match(joint_name):
+                self._knee_link_ids.append(joint_id)
+            elif self.pattern[3].match(joint_name):
+                self._foot_link_ids.append(joint_id)
+            else:
+                raise ValueError("Unknown category of joint %s" % joint_name)
+
+        self._leg_link_ids.extend(self._knee_link_ids)
+        self._leg_link_ids.extend(self._foot_link_ids)
+        self._foot_link_ids.extend(self._knee_link_ids)
+
+        self._chassis_link_ids.sort()
+        self._motor_link_ids.sort()
+        self._foot_link_ids.sort()
+        self._leg_link_ids.sort()
+
+        return
+
+    def _RecordMassInfoFromURDF(self):
+        """Records the mass information from the URDF file."""
+        self._base_mass_urdf = []
+        for chassis_id in self._chassis_link_ids:
+            self._base_mass_urdf.append(
+                self.pybullet_client.getDynamicsInfo(self.quadruped, chassis_id)[0])
+        self._leg_masses_urdf = []
+        for leg_id in self._leg_link_ids:
+            self._leg_masses_urdf.append(
+                self.pybullet_client.getDynamicsInfo(self.quadruped, leg_id)[0])
+        for motor_id in self._motor_link_ids:
+            self._leg_masses_urdf.append(
+                self.pybullet_client.getDynamicsInfo(self.quadruped, motor_id)[0])
+
+    def _RecordInertiaInfoFromURDF(self):
+        """Record the inertia of each body from URDF file."""
+        self._link_urdf = []
+        num_bodies = self.pybullet_client.getNumJoints(self.quadruped)
+        for body_id in range(-1, num_bodies):  # -1 is for the base link.
+            inertia = self.pybullet_client.getDynamicsInfo(self.quadruped,
+                                                           body_id)[2]
+            self._link_urdf.append(inertia)
+        # We need to use id+1 to index self._link_urdf because it has the base
+        # (index = -1) at the first element.
+        self._base_inertia_urdf = [
+            self._link_urdf[chassis_id + 1] for chassis_id in self._chassis_link_ids
+        ]
+        self._leg_inertia_urdf = [
+            self._link_urdf[leg_id + 1] for leg_id in self._leg_link_ids
+        ]
+        self._leg_inertia_urdf.extend(
+            [self._link_urdf[motor_id + 1] for motor_id in self._motor_link_ids])
+
+    def _BuildJointNameToIdDict(self):
+        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
+        self._joint_name_to_id = {}
+        for i in range(num_joints):
+            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
+            self._joint_name_to_id[joint_info[1].decode(
+                "UTF-8")] = joint_info[0]
+
+    def _RemoveDefaultJointDamping(self):
+        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
+        for i in range(num_joints):
+            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
+            self.pybullet_client.changeDynamics(
+                joint_info[0], -1, linearDamping=0, angularDamping=0)
+
+    def _BuildMotorIdList(self):
+        self._motor_id_list = [
+            self._joint_name_to_id[motor_name]
+            for motor_name in self._GetMotorNames()
+        ]
+
+    def _CreateRackConstraint(self, init_position, init_orientation):
+        """Create a constraint that keeps the chassis at a fixed frame.
+
+        This frame is defined by init_position and init_orientation.
+
+        Args:
+          init_position: initial position of the fixed frame.
+          init_orientation: initial orientation of the fixed frame in quaternion
+            format [x,y,z,w].
+
+        Returns:
+          Return the constraint id.
+        """
+        fixed_constraint = self.pybullet_client.createConstraint(
+            parentBodyUniqueId=self.quadruped,
+            parentLinkIndex=-1,
+            childBodyUniqueId=-1,
+            childLinkIndex=-1,
+            jointType=self.pybullet_client.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=[0, 0, 0],
+            childFramePosition=init_position,
+            childFrameOrientation=init_orientation)
+        return fixed_constraint
+
+    def SetBaseMasses(self, base_mass):
+        """Set the mass of minitaur's base.
+
+        Args:
+          base_mass: A list of masses of each body link in CHASIS_LINK_IDS. The
+            length of this list should be the same as the length of CHASIS_LINK_IDS.
+
+        Raises:
+          ValueError: It is raised when the length of base_mass is not the same as
+            the length of self._chassis_link_ids.
+        """
+        if len(base_mass) != len(self._chassis_link_ids):
+            raise ValueError(
+                "The length of base_mass {} and self._chassis_link_ids {} are not "
+                "the same.".format(len(base_mass), len(self._chassis_link_ids)))
+        for chassis_id, chassis_mass in zip(self._chassis_link_ids, base_mass):
+            self.pybullet_client.changeDynamics(
+                self.quadruped, chassis_id, mass=chassis_mass)
+
+    def SetLegMasses(self, leg_masses):
+        """Set the mass of the legs.
+
+        A leg includes leg_link and motor. 4 legs contain 16 links (4 links each)
+        and 8 motors. First 16 numbers correspond to link masses, last 8 correspond
+        to motor masses (24 total).
+
+        Args:
+          leg_masses: The leg and motor masses for all the leg links and motors.
+
+        Raises:
+          ValueError: It is raised when the length of masses is not equal to number
+            of links + motors.
+        """
+        if len(leg_masses) != len(self._leg_link_ids) + len(self._motor_link_ids):
+            raise ValueError("The number of values passed to SetLegMasses are "
+                             "different than number of leg links and motors.")
+        for leg_id, leg_mass in zip(self._leg_link_ids, leg_masses):
+            self.pybullet_client.changeDynamics(
+                self.quadruped, leg_id, mass=leg_mass)
+        motor_masses = leg_masses[len(self._leg_link_ids):]
+        for link_id, motor_mass in zip(self._motor_link_ids, motor_masses):
+            self.pybullet_client.changeDynamics(
+                self.quadruped, link_id, mass=motor_mass)
+
+    def SetBaseInertias(self, base_inertias):
+        """Set the inertias of minitaur's base.
+
+        Args:
+          base_inertias: A list of inertias of each body link in CHASIS_LINK_IDS.
+            The length of this list should be the same as the length of
+            CHASIS_LINK_IDS.
+
+        Raises:
+          ValueError: It is raised when the length of base_inertias is not the same
+            as the length of self._chassis_link_ids and base_inertias contains
+            negative values.
+        """
+        if len(base_inertias) != len(self._chassis_link_ids):
+            raise ValueError(
+                "The length of base_inertias {} and self._chassis_link_ids {} are "
+                "not the same.".format(
+                    len(base_inertias), len(self._chassis_link_ids)))
+        for chassis_id, chassis_inertia in zip(self._chassis_link_ids,
+                                               base_inertias):
+            for inertia_value in chassis_inertia:
+                if (np.asarray(inertia_value) < 0).any():
+                    raise ValueError(
+                        "Values in inertia matrix should be non-negative.")
+            self.pybullet_client.changeDynamics(
+                self.quadruped, chassis_id, localInertiaDiagonal=chassis_inertia)
+
+    def SetLegInertias(self, leg_inertias):
+        """Set the inertias of the legs.
+
+        A leg includes leg_link and motor. 4 legs contain 16 links (4 links each)
+        and 8 motors. First 16 numbers correspond to link inertia, last 8 correspond
+        to motor inertia (24 total).
+
+        Args:
+          leg_inertias: The leg and motor inertias for all the leg links and motors.
+
+        Raises:
+          ValueError: It is raised when the length of inertias is not equal to
+          the number of links + motors or leg_inertias contains negative values.
+        """
+
+        if len(leg_inertias) != len(self._leg_link_ids) + len(self._motor_link_ids):
+            raise ValueError("The number of values passed to SetLegMasses are "
+                             "different than number of leg links and motors.")
+        for leg_id, leg_inertia in zip(self._leg_link_ids, leg_inertias):
+            for inertia_value in leg_inertias:
+                if (np.asarray(inertia_value) < 0).any():
+                    raise ValueError(
+                        "Values in inertia matrix should be non-negative.")
+            self.pybullet_client.changeDynamics(
+                self.quadruped, leg_id, localInertiaDiagonal=leg_inertia)
+
+        motor_inertias = leg_inertias[len(self._leg_link_ids):]
+        for link_id, motor_inertia in zip(self._motor_link_ids, motor_inertias):
+            for inertia_value in motor_inertias:
+                if (np.asarray(inertia_value) < 0).any():
+                    raise ValueError(
+                        "Values in inertia matrix should be non-negative.")
+            self.pybullet_client.changeDynamics(
+                self.quadruped, link_id, localInertiaDiagonal=motor_inertia)
+
+    def SetFootFriction(self, foot_friction):
+        """Set the lateral friction of the feet.
+
+        Args:
+          foot_friction: The lateral friction coefficient of the foot. This value is
+            shared by all four feet.
+        """
+        for link_id in self._foot_link_ids:
+            self.pybullet_client.changeDynamics(
+                self.quadruped, link_id, lateralFriction=foot_friction)
+
+    def SetFootRestitution(self, foot_restitution):
+        """Set the coefficient of restitution at the feet.
+
+        Args:
+          foot_restitution: The coefficient of restitution (bounciness) of the feet.
+            This value is shared by all four feet.
+        """
+        for link_id in self._foot_link_ids:
+            self.pybullet_client.changeDynamics(
+                self.quadruped, link_id, restitution=foot_restitution)
+
+    def SetJointFriction(self, joint_frictions):
+        for knee_joint_id, friction in zip(self._foot_link_ids, joint_frictions):
+            self.pybullet_client.setJointMotorControl2(
+                bodyIndex=self.quadruped,
+                jointIndex=knee_joint_id,
+                controlMode=self.pybullet_client.VELOCITY_CONTROL,
+                targetVelocity=0,
+                force=friction)
+
     def ReceiveObservation(self):
         """Receive the observation from sensors.
 
@@ -372,6 +643,8 @@ class Quadruped(pybullet_env.PybulletEnv):
             position=[0, 0, 0], orientation=self.GetDefaultInitOrientation())
         self._joint_states = self.pybullet_client.getJointStates(
             self.quadruped, self._motor_id_list)
+        self._base_linear_vel, self._base_angular_vel = self.pybullet_client.getBaseVelocity(
+            self.quadruped)
         self._base_position, orientation = (
             self.pybullet_client.getBasePositionAndOrientation(self.quadruped))
         # Computes the relative orientation relative to the robot's
@@ -518,8 +791,7 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           The velocity of minitaur's base.
         """
-        velocity, _ = self.pybullet_client.getBaseVelocity(self.quadruped)
-        return velocity
+        return self._base_linear_vel
 
     def GetTrueBaseRollPitchYaw(self):
         """Get minitaur's base orientation in euler angle in the world frame.
@@ -528,8 +800,7 @@ class Quadruped(pybullet_env.PybulletEnv):
           A tuple (roll, pitch, yaw) of the base in world frame.
         """
         orientation = self.GetTrueBaseOrientation()
-        roll_pitch_yaw = self.pybullet_client.getEulerFromQuaternion(
-            orientation)
+        roll_pitch_yaw = transformations.euler_from_quaternion(orientation)
         return np.asarray(roll_pitch_yaw)
 
     def GetBaseRollPitchYaw(self):
@@ -542,7 +813,7 @@ class Quadruped(pybullet_env.PybulletEnv):
         """
         delayed_orientation = np.array(
             self._control_observation[3 * self.num_motors:3 * self.num_motors + 4])
-        delayed_roll_pitch_yaw = self.pybullet_client.getEulerFromQuaternion(
+        delayed_roll_pitch_yaw = transformations.euler_from_quaternion(
             delayed_orientation)
         roll_pitch_yaw = self._AddSensorNoise(
             np.array(delayed_roll_pitch_yaw), self._observation_noise_stdev[3])
@@ -656,8 +927,7 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           The orientation of minitaur's base polluted by noise and latency.
         """
-        return self.pybullet_client.getQuaternionFromEuler(
-            self.GetBaseRollPitchYaw())
+        return transformations.quaternion_from_euler(self.GetBaseRollPitchYaw())
 
     def GetTrueBaseRollPitchYawRate(self):
         """Get the rate of orientation change of the minitaur's base in euler angle.
@@ -690,7 +960,7 @@ class Quadruped(pybullet_env.PybulletEnv):
         # translation and reverse of the given orientation.
         relative_velocity, _ = self.pybullet_client.multiplyTransforms(
             [0, 0, 0], orientation_inversed, angular_velocity,
-            self.pybullet_client.getQuaternionFromEuler([0, 0, 0]))
+            transformations.quaternion_from_euler([0, 0, 0]))
         return np.asarray(relative_velocity)
 
     def GetBaseRollPitchYawRate(self):
@@ -709,140 +979,6 @@ class Quadruped(pybullet_env.PybulletEnv):
     def GetFootLinkIDs(self):
         """Get list of IDs for all foot links."""
         return self._foot_link_ids
-
-    def _RecordMassInfoFromURDF(self):
-        """Records the mass information from the URDF file."""
-        self._base_mass_urdf = []
-        for chassis_id in self._chassis_link_ids:
-            self._base_mass_urdf.append(
-                self.pybullet_client.getDynamicsInfo(self.quadruped, chassis_id)[0])
-        self._leg_masses_urdf = []
-        for leg_id in self._leg_link_ids:
-            self._leg_masses_urdf.append(
-                self.pybullet_client.getDynamicsInfo(self.quadruped, leg_id)[0])
-        for motor_id in self._motor_link_ids:
-            self._leg_masses_urdf.append(
-                self.pybullet_client.getDynamicsInfo(self.quadruped, motor_id)[0])
-
-    def _RecordInertiaInfoFromURDF(self):
-        """Record the inertia of each body from URDF file."""
-        self._link_urdf = []
-        num_bodies = self.pybullet_client.getNumJoints(self.quadruped)
-        for body_id in range(-1, num_bodies):  # -1 is for the base link.
-            inertia = self.pybullet_client.getDynamicsInfo(self.quadruped,
-                                                           body_id)[2]
-            self._link_urdf.append(inertia)
-        # We need to use id+1 to index self._link_urdf because it has the base
-        # (index = -1) at the first element.
-        self._base_inertia_urdf = [
-            self._link_urdf[chassis_id + 1] for chassis_id in self._chassis_link_ids
-        ]
-        self._leg_inertia_urdf = [
-            self._link_urdf[leg_id + 1] for leg_id in self._leg_link_ids
-        ]
-        self._leg_inertia_urdf.extend(
-            [self._link_urdf[motor_id + 1] for motor_id in self._motor_link_ids])
-
-    def _BuildJointNameToIdDict(self):
-        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
-        self._joint_name_to_id = {}
-        for i in range(num_joints):
-            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
-            self._joint_name_to_id[joint_info[1].decode(
-                "UTF-8")] = joint_info[0]
-
-    def _BuildUrdfIds(self):
-        """Build the link Ids from its name in the URDF file.
-
-        Raises:
-          ValueError: Unknown category of the joint name.
-        """
-        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
-        self._chassis_link_ids = [-1]
-        self._leg_link_ids = []
-        self._motor_link_ids = []
-        self._knee_link_ids = []
-        self._foot_link_ids = []
-
-        for i in range(num_joints):
-            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
-            joint_name = joint_info[1].decode("UTF-8")
-            joint_id = self._joint_name_to_id[joint_name]
-            if self.pattern[0].match(joint_name):
-                self._chassis_link_ids.append(joint_id)
-            elif self.pattern[1].match(joint_name):
-                self._motor_link_ids.append(joint_id)
-            # We either treat the lower leg or the toe as the foot link, depending on
-            # the urdf version used.
-            elif self.pattern[2].match(joint_name):
-                self._knee_link_ids.append(joint_id)
-            elif self.pattern[3].match(joint_name):
-                self._foot_link_ids.append(joint_id)
-            else:
-                raise ValueError("Unknown category of joint %s" % joint_name)
-
-        self._leg_link_ids.extend(self._knee_link_ids)
-        self._leg_link_ids.extend(self._foot_link_ids)
-        self._foot_link_ids.extend(self._knee_link_ids)
-
-        self._chassis_link_ids.sort()
-        self._motor_link_ids.sort()
-        self._foot_link_ids.sort()
-        self._leg_link_ids.sort()
-
-        return
-
-    def _RemoveDefaultJointDamping(self):
-        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
-        for i in range(num_joints):
-            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
-            self.pybullet_client.changeDynamics(
-                joint_info[0], -1, linearDamping=0, angularDamping=0)
-
-    def _BuildMotorIdList(self):
-        self._motor_id_list = [
-            self._joint_name_to_id[motor_name]
-            for motor_name in self._GetMotorNames()
-        ]
-
-    def _CreateRackConstraint(self, init_position, init_orientation):
-        """Create a constraint that keeps the chassis at a fixed frame.
-
-        This frame is defined by init_position and init_orientation.
-
-        Args:
-          init_position: initial position of the fixed frame.
-          init_orientation: initial orientation of the fixed frame in quaternion
-            format [x,y,z,w].
-
-        Returns:
-          Return the constraint id.
-        """
-        fixed_constraint = self.pybullet_client.createConstraint(
-            parentBodyUniqueId=self.quadruped,
-            parentLinkIndex=-1,
-            childBodyUniqueId=-1,
-            childLinkIndex=-1,
-            jointType=self.pybullet_client.JOINT_FIXED,
-            jointAxis=[0, 0, 0],
-            parentFramePosition=[0, 0, 0],
-            childFramePosition=init_position,
-            childFrameOrientation=init_orientation)
-        return fixed_constraint
-
-    def _LoadRobotURDF(self):
-        """Loads the URDF file for the robot."""
-        urdf_file = self.GetURDFFile()
-        if self._self_collision_enabled:
-            self.quadruped = self.pybullet_client.loadURDF(
-                urdf_file,
-                self._GetDefaultInitPosition(),
-                self.GetDefaultInitOrientation(),
-                flags=self.pybullet_client.URDF_USE_SELF_COLLISION)
-        else:
-            self.quadruped = self.pybullet_client.loadURDF(
-                urdf_file, self.GetDefaultInitPosition(),
-                self.GetDefaultInitOrientation())
 
     def _SetMotorTorqueById(self, motor_id, torque):
         self.pybullet_client.setJointMotorControl2(
@@ -895,143 +1031,6 @@ class Quadruped(pybullet_env.PybulletEnv):
     def GetLegInertiasFromURDF(self):
         """Get the inertia of the legs from the URDF file."""
         return self._leg_inertia_urdf
-
-    def SetBaseMasses(self, base_mass):
-        """Set the mass of minitaur's base.
-
-        Args:
-          base_mass: A list of masses of each body link in CHASIS_LINK_IDS. The
-            length of this list should be the same as the length of CHASIS_LINK_IDS.
-
-        Raises:
-          ValueError: It is raised when the length of base_mass is not the same as
-            the length of self._chassis_link_ids.
-        """
-        if len(base_mass) != len(self._chassis_link_ids):
-            raise ValueError(
-                "The length of base_mass {} and self._chassis_link_ids {} are not "
-                "the same.".format(len(base_mass), len(self._chassis_link_ids)))
-        for chassis_id, chassis_mass in zip(self._chassis_link_ids, base_mass):
-            self.pybullet_client.changeDynamics(
-                self.quadruped, chassis_id, mass=chassis_mass)
-
-    def SetLegMasses(self, leg_masses):
-        """Set the mass of the legs.
-
-        A leg includes leg_link and motor. 4 legs contain 16 links (4 links each)
-        and 8 motors. First 16 numbers correspond to link masses, last 8 correspond
-        to motor masses (24 total).
-
-        Args:
-          leg_masses: The leg and motor masses for all the leg links and motors.
-
-        Raises:
-          ValueError: It is raised when the length of masses is not equal to number
-            of links + motors.
-        """
-        if len(leg_masses) != len(self._leg_link_ids) + len(self._motor_link_ids):
-            raise ValueError("The number of values passed to SetLegMasses are "
-                             "different than number of leg links and motors.")
-        for leg_id, leg_mass in zip(self._leg_link_ids, leg_masses):
-            self.pybullet_client.changeDynamics(
-                self.quadruped, leg_id, mass=leg_mass)
-        motor_masses = leg_masses[len(self._leg_link_ids):]
-        for link_id, motor_mass in zip(self._motor_link_ids, motor_masses):
-            self.pybullet_client.changeDynamics(
-                self.quadruped, link_id, mass=motor_mass)
-
-    def SetBaseInertias(self, base_inertias):
-        """Set the inertias of minitaur's base.
-
-        Args:
-          base_inertias: A list of inertias of each body link in CHASIS_LINK_IDS.
-            The length of this list should be the same as the length of
-            CHASIS_LINK_IDS.
-
-        Raises:
-          ValueError: It is raised when the length of base_inertias is not the same
-            as the length of self._chassis_link_ids and base_inertias contains
-            negative values.
-        """
-        if len(base_inertias) != len(self._chassis_link_ids):
-            raise ValueError(
-                "The length of base_inertias {} and self._chassis_link_ids {} are "
-                "not the same.".format(
-                    len(base_inertias), len(self._chassis_link_ids)))
-        for chassis_id, chassis_inertia in zip(self._chassis_link_ids,
-                                               base_inertias):
-            for inertia_value in chassis_inertia:
-                if (np.asarray(inertia_value) < 0).any():
-                    raise ValueError(
-                        "Values in inertia matrix should be non-negative.")
-            self.pybullet_client.changeDynamics(
-                self.quadruped, chassis_id, localInertiaDiagonal=chassis_inertia)
-
-    def SetLegInertias(self, leg_inertias):
-        """Set the inertias of the legs.
-
-        A leg includes leg_link and motor. 4 legs contain 16 links (4 links each)
-        and 8 motors. First 16 numbers correspond to link inertia, last 8 correspond
-        to motor inertia (24 total).
-
-        Args:
-          leg_inertias: The leg and motor inertias for all the leg links and motors.
-
-        Raises:
-          ValueError: It is raised when the length of inertias is not equal to
-          the number of links + motors or leg_inertias contains negative values.
-        """
-
-        if len(leg_inertias) != len(self._leg_link_ids) + len(self._motor_link_ids):
-            raise ValueError("The number of values passed to SetLegMasses are "
-                             "different than number of leg links and motors.")
-        for leg_id, leg_inertia in zip(self._leg_link_ids, leg_inertias):
-            for inertia_value in leg_inertias:
-                if (np.asarray(inertia_value) < 0).any():
-                    raise ValueError(
-                        "Values in inertia matrix should be non-negative.")
-            self.pybullet_client.changeDynamics(
-                self.quadruped, leg_id, localInertiaDiagonal=leg_inertia)
-
-        motor_inertias = leg_inertias[len(self._leg_link_ids):]
-        for link_id, motor_inertia in zip(self._motor_link_ids, motor_inertias):
-            for inertia_value in motor_inertias:
-                if (np.asarray(inertia_value) < 0).any():
-                    raise ValueError(
-                        "Values in inertia matrix should be non-negative.")
-            self.pybullet_client.changeDynamics(
-                self.quadruped, link_id, localInertiaDiagonal=motor_inertia)
-
-    def SetFootFriction(self, foot_friction):
-        """Set the lateral friction of the feet.
-
-        Args:
-          foot_friction: The lateral friction coefficient of the foot. This value is
-            shared by all four feet.
-        """
-        for link_id in self._foot_link_ids:
-            self.pybullet_client.changeDynamics(
-                self.quadruped, link_id, lateralFriction=foot_friction)
-
-    def SetFootRestitution(self, foot_restitution):
-        """Set the coefficient of restitution at the feet.
-
-        Args:
-          foot_restitution: The coefficient of restitution (bounciness) of the feet.
-            This value is shared by all four feet.
-        """
-        for link_id in self._foot_link_ids:
-            self.pybullet_client.changeDynamics(
-                self.quadruped, link_id, restitution=foot_restitution)
-
-    def SetJointFriction(self, joint_frictions):
-        for knee_joint_id, friction in zip(self._foot_link_ids, joint_frictions):
-            self.pybullet_client.setJointMotorControl2(
-                bodyIndex=self.quadruped,
-                jointIndex=knee_joint_id,
-                controlMode=self.pybullet_client.VELOCITY_CONTROL,
-                targetVelocity=0,
-                force=friction)
 
     def GetNumKneeJoints(self):
         return len(self._foot_link_ids)
