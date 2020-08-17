@@ -1,6 +1,8 @@
 # OpenRoboRL
 
-An open source robot reinforcement learing plantform using stable-baselines and OpenAI Gym in Pybullet simulator
+An open source robot reinforcement learing plantform using stable-baselines and OpenAI Gym in Pybullet simulator.
+
+This repo is just started, and only has quadruped robot motion imitation from google research now, but in the future it will have varity of robots, tasks and envs on this platform.
 
 ## Getting Started
 
