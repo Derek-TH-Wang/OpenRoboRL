@@ -23,6 +23,7 @@ import copy
 import math
 import re
 import typing
+import time
 import numpy as np
 from robots import robot_motor
 from robots import action_filter
@@ -40,7 +41,7 @@ TWO_PI = 2 * math.pi
 class Quadruped(pybullet_env.PybulletEnv):
     """The minitaur class that simulates a quadruped robot from Ghost Robotics."""
 
-    def __init__(self, robot):
+    def __init__(self, robot, num_robot):
         """Constructs a minitaur and reset it to the initial states.
         """
         if robot == "laikago":
@@ -49,7 +50,7 @@ class Quadruped(pybullet_env.PybulletEnv):
             from robots import mini_cheetah as robot
         else:
             raise ValueError("wrong robot select")
-
+        self.num_robot = num_robot
         self.action_space = robot.action_space
         self.observation_space = robot.observation_space
         self._urdf_file = robot.URDF_FILENAME
@@ -60,8 +61,12 @@ class Quadruped(pybullet_env.PybulletEnv):
         self.sim_time_step = robot.T_STEP
         self._action_repeat = robot.NUM_ACTION_REPEAT
         self._self_collision_enabled = False
-        self._init_pos = robot.INIT_POSITION
-        self._init_eul = robot.INIT_EUL
+        self._init_pos = []
+        self._init_eul = []
+        for i in range(self.num_robot):
+            self._init_pos.append(copy.deepcopy(robot.INIT_POSITION))
+            self._init_pos[i][1] += i
+            self._init_eul.append(copy.deepcopy(robot.INIT_EUL))
         self._init_rack_pos = robot.INIT_RACK_POSITION
         self._init_motor_angle = robot.INIT_MOTOR_ANGLES
         self._motor_direction = robot.JOINT_DIRECTIONS
@@ -70,14 +75,12 @@ class Quadruped(pybullet_env.PybulletEnv):
         self._motor_kd = robot.motor_kd
         self._motor_torque_limits = None
         self._motor_control_mode = robot_motor.POSITION
-        self._observed_motor_torques = np.zeros(self.num_motors)
-        self._applied_motor_torques = np.zeros(self.num_motors)
+        self._observed_motor_torques = [np.zeros(self.num_motors) for _ in range(self.num_robot)]
+        self._applied_motor_torques = [np.zeros(self.num_motors) for _ in range(self.num_robot)]
         self._max_force = 3.5
         self._pd_latency = 0.0
         self._control_latency = robot.CTRL_LATENCY
         self._observation_noise_stdev = SENSOR_NOISE_STDDEV
-        self._observation_history = collections.deque(maxlen=100)
-        self._control_observation = []
         self._chassis_link_ids = [-1]
         self._leg_link_ids = []
         self._motor_link_ids = []
@@ -93,6 +96,15 @@ class Quadruped(pybullet_env.PybulletEnv):
         self._enable_action_filter = True
         self._filter_action = None
         self._enable_randomizer = True
+
+        self._init_orientation_inv = [0 for _ in range(self.num_robot)]
+        self._joint_states = [0 for _ in range(self.num_robot)]
+        self._base_linear_vel = [0 for _ in range(self.num_robot)]
+        self._base_angular_vel = [0 for _ in range(self.num_robot)]
+        self._base_position = [0 for _ in range(self.num_robot)]
+        self._base_orientation = [0 for _ in range(self.num_robot)]
+        self._observation_history = [collections.deque(maxlen=100) for _ in range(self.num_robot)]
+        self._control_observation = [0 for _ in range(self.num_robot)]
 
         if self._on_rack and self._reset_at_current_position:
             raise ValueError("on_rack and reset_at_current_position "
@@ -120,7 +132,7 @@ class Quadruped(pybullet_env.PybulletEnv):
         self._state_action_counter = 0
 
         if self._enable_action_filter:
-            self._action_filter = self._BuildActionFilter()
+            self._action_filter = [self._BuildActionFilter() for _ in range(self.num_robot)]
 
         super(Quadruped, self).__init__(time_step=self.sim_time_step,
                                         action_repeat=self._action_repeat, enable_randomizer=self._enable_randomizer)
@@ -138,18 +150,22 @@ class Quadruped(pybullet_env.PybulletEnv):
         return a_filter
 
     def _ResetActionFilter(self):
-        self._action_filter.reset()
+        for i in range(self.num_robot):
+            self._action_filter[i].reset()
         return
 
     def _FilterAction(self, action):
         # initialize the filter history, since resetting the filter will fill
         # the history with zeros and this can cause sudden movements at the start
         # of each episode
+        filtered_action = [[] for _ in range(self.num_robot)]
         if self._step_counter == 0:
             default_action = self.GetMotorAngles()
-            self._action_filter.init_history(default_action)
+            for i in range(self.num_robot):
+                self._action_filter[i].init_history(default_action[i])
 
-        filtered_action = self._action_filter.filter(action)
+        for i in range(self.num_robot):
+            filtered_action[i] = self._action_filter[i].filter(action[i])
         return filtered_action
 
     def set_action(self, action):
@@ -187,6 +203,7 @@ class Quadruped(pybullet_env.PybulletEnv):
           If interpolation is enabled, returns interpolated action depending on
           the current action repeat substep.
         """
+        proc_action = [0 for _ in range(self.num_robot)]
         if self._enable_action_interpolation:
             if self._filter_action is not None:
                 prev_action = self._filter_action
@@ -194,7 +211,8 @@ class Quadruped(pybullet_env.PybulletEnv):
                 prev_action = self.GetMotorAngles()
 
             lerp = float(substep_count + 1) / self._action_repeat
-            proc_action = prev_action + lerp * (action - prev_action)
+            for i in range(self.num_robot):
+                proc_action[i] = prev_action[i] + lerp * (action[i] - prev_action[i])
         else:
             proc_action = action
 
@@ -214,9 +232,10 @@ class Quadruped(pybullet_env.PybulletEnv):
         # clamp the motor command by the joint limit, in case weired things happens
         max_angle_change = MAX_MOTOR_ANGLE_CHANGE_PER_STEP
         current_motor_angles = self.GetMotorAngles()
-        motor_commands = np.clip(motor_commands,
-                                 current_motor_angles - max_angle_change,
-                                 current_motor_angles + max_angle_change)
+        for i in range(self.num_robot):
+            motor_commands[i] = np.clip(motor_commands[i],
+                                    current_motor_angles[i] - max_angle_change,
+                                    current_motor_angles[i] + max_angle_change)
         return motor_commands
 
     def ApplyAction(self, motor_commands, motor_control_mode=None):
@@ -237,8 +256,11 @@ class Quadruped(pybullet_env.PybulletEnv):
 
         q, qdot = self._GetPDObservation()
         qdot_true = self.GetTrueMotorVelocities()
-        actual_torque, observed_torque = self._motor_model.convert_to_torque(
-            motor_commands, q, qdot, qdot_true, control_mode)
+        actual_torque = [[] for _ in range(self.num_robot)]
+        observed_torque = [[] for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            actual_torque[i], observed_torque[i] = self._motor_model.convert_to_torque(
+                motor_commands[i], q[i], qdot[i], qdot_true[i], control_mode)
 
         # May turn off the motor
         self._ApplyOverheatProtection(actual_torque)
@@ -250,18 +272,20 @@ class Quadruped(pybullet_env.PybulletEnv):
         # Transform into the motor space when applying the torque.
         self._applied_motor_torque = np.multiply(actual_torque,
                                                  self._motor_direction)
-        motor_ids = []
-        motor_torques = []
+        motor_ids = [[] for _ in range(self.num_robot)]
+        motor_torques = [[] for _ in range(self.num_robot)]
 
-        for motor_id, motor_torque, motor_enabled in zip(self._motor_id_list,
-                                                         self._applied_motor_torque,
-                                                         self._motor_enabled_list):
-            if motor_enabled:
-                motor_ids.append(motor_id)
-                motor_torques.append(motor_torque)
-            else:
-                motor_ids.append(motor_id)
-                motor_torques.append(0)
+        for i in range(self.num_robot):
+            for motor_id, motor_torque, motor_enabled in zip(self._motor_id_list,
+                                                            self._applied_motor_torque[i],
+                                                            self._motor_enabled_list[i]):
+                if motor_enabled:
+                    motor_ids[i].append(motor_id)
+                    motor_torques[i].append(motor_torque)
+                else:
+                    motor_ids[i].append(motor_id)
+                    motor_torques[i].append(0)
+        
         self._SetMotorTorqueByIds(motor_ids, motor_torques)
 
     def _StepInternal(self, action, motor_control_mode=None):
@@ -279,19 +303,19 @@ class Quadruped(pybullet_env.PybulletEnv):
           add_constraint: Whether to add a constraint at the joints of two feet.
         """
         del add_constraint
-        for name in self._joint_name_to_id:
-            joint_id = self._joint_name_to_id[name]
-            self.pybullet_client.setJointMotorControl2(
-                bodyIndex=self.quadruped,
-                jointIndex=(joint_id),
-                controlMode=self.pybullet_client.VELOCITY_CONTROL,
-                targetVelocity=0,
-                force=0)
-
-        for name, i in zip(self.name_motor, range(len(self.name_motor))):
-            angle = self._init_motor_angle[i] + self._motor_offset[i]
-            self.pybullet_client.resetJointState(
-                self.quadruped, self._joint_name_to_id[name], angle, targetVelocity=0)
+        for robot in self.quadruped:
+            for name in self._joint_name_to_id:
+                joint_id = self._joint_name_to_id[name]
+                self.pybullet_client.setJointMotorControl2(
+                    bodyIndex=robot,
+                    jointIndex=(joint_id),
+                    controlMode=self.pybullet_client.VELOCITY_CONTROL,
+                    targetVelocity=0,
+                    force=0)
+            for name, i in zip(self.name_motor, range(len(self.name_motor))):
+                angle = self._init_motor_angle[i] + self._motor_offset[i]
+                self.pybullet_client.resetJointState(
+                    robot, self._joint_name_to_id[name], angle, targetVelocity=0)
 
     def _SettleDownForReset(self, default_motor_angles, reset_time):
         self.ReceiveObservation()
@@ -335,21 +359,26 @@ class Quadruped(pybullet_env.PybulletEnv):
             self._RecordInertiaInfoFromURDF()
             self.ResetPose(add_constraint=True)
         else:
-            self.pybullet_client.resetBasePositionAndOrientation(
-                self.quadruped, self.GetDefaultInitPosition(),
-                self.GetDefaultInitOrientation())
-            self.pybullet_client.resetBaseVelocity(self.quadruped, [0, 0, 0],
-                                                   [0, 0, 0])
+            for i in range(self.num_robot):
+                self.pybullet_client.resetBasePositionAndOrientation(
+                    self.quadruped[i], self.GetDefaultInitPosition()[i],
+                    self.GetDefaultInitOrientation()[i])
+                time.sleep(0.1)
+                self.pybullet_client.resetBaseVelocity(self.quadruped[i], [0, 0, 0],
+                                                    [0, 0, 0])
+                time.sleep(0.1)
             self.ResetPose(add_constraint=False)
+            time.sleep(0.1)
 
-        self._overheat_counter = np.zeros(self.num_motors)
-        self._motor_enabled_list = [True] * self.num_motors
-        self._observation_history.clear()
+        self._overheat_counter = [np.zeros(self.num_motors) for _ in range(self.num_robot)]
+        self._motor_enabled_list = [[True] * self.num_motors for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            self._observation_history[i].clear()
         self._step_counter = 0
         self._state_action_counter = 0
         self._is_safe = True
         self._filter_action = None
-        self._last_action = np.zeros(self.action_space.shape)
+        self._last_action = [np.zeros(self.action_space.shape) for _ in range(self.num_robot)]
 
         self._SettleDownForReset(default_motor_angles, reset_time)
 
@@ -364,17 +393,17 @@ class Quadruped(pybullet_env.PybulletEnv):
 
     def _LoadRobotURDF(self):
         """Loads the URDF file for the robot."""
+        self.quadruped = []
         urdf_file = self.GetURDFFile()
-        if self._self_collision_enabled:
-            self.quadruped = self.pybullet_client.loadURDF(
-                urdf_file,
-                self._GetDefaultInitPosition(),
-                self.GetDefaultInitOrientation(),
-                flags=self.pybullet_client.URDF_USE_SELF_COLLISION)
-        else:
-            self.quadruped = self.pybullet_client.loadURDF(
-                urdf_file, self.GetDefaultInitPosition(),
-                self.GetDefaultInitOrientation())
+        pos = self.GetDefaultInitPosition()
+        ori = self.GetDefaultInitOrientation()
+        for i in range(self.num_robot):
+            if self._self_collision_enabled:
+                self.quadruped.append(self.pybullet_client.loadURDF(
+                    urdf_file, pos[i], ori[i], flags=self.pybullet_client.URDF_USE_SELF_COLLISION))
+            else:
+                self.quadruped.append(self.pybullet_client.loadURDF(
+                    urdf_file, pos[i], ori[i]))
 
     def _BuildUrdfIds(self):
         """Build the link Ids from its name in the URDF file.
@@ -382,7 +411,7 @@ class Quadruped(pybullet_env.PybulletEnv):
         Raises:
           ValueError: Unknown category of the joint name.
         """
-        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
+        num_joints = self.pybullet_client.getNumJoints(self.quadruped[0])
         self._chassis_link_ids = [-1]
         self._leg_link_ids = []
         self._motor_link_ids = []
@@ -390,7 +419,7 @@ class Quadruped(pybullet_env.PybulletEnv):
         self._foot_link_ids = []
 
         for i in range(num_joints):
-            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
+            joint_info = self.pybullet_client.getJointInfo(self.quadruped[0], i)
             joint_name = joint_info[1].decode("UTF-8")
             joint_id = self._joint_name_to_id[joint_name]
             if self.pattern[0].match(joint_name):
@@ -422,21 +451,21 @@ class Quadruped(pybullet_env.PybulletEnv):
         self._base_mass_urdf = []
         for chassis_id in self._chassis_link_ids:
             self._base_mass_urdf.append(
-                self.pybullet_client.getDynamicsInfo(self.quadruped, chassis_id)[0])
+                self.pybullet_client.getDynamicsInfo(self.quadruped[0], chassis_id)[0])
         self._leg_masses_urdf = []
         for leg_id in self._leg_link_ids:
             self._leg_masses_urdf.append(
-                self.pybullet_client.getDynamicsInfo(self.quadruped, leg_id)[0])
+                self.pybullet_client.getDynamicsInfo(self.quadruped[0], leg_id)[0])
         for motor_id in self._motor_link_ids:
             self._leg_masses_urdf.append(
-                self.pybullet_client.getDynamicsInfo(self.quadruped, motor_id)[0])
+                self.pybullet_client.getDynamicsInfo(self.quadruped[0], motor_id)[0])
 
     def _RecordInertiaInfoFromURDF(self):
         """Record the inertia of each body from URDF file."""
         self._link_urdf = []
-        num_bodies = self.pybullet_client.getNumJoints(self.quadruped)
+        num_bodies = self.pybullet_client.getNumJoints(self.quadruped[0])
         for body_id in range(-1, num_bodies):  # -1 is for the base link.
-            inertia = self.pybullet_client.getDynamicsInfo(self.quadruped,
+            inertia = self.pybullet_client.getDynamicsInfo(self.quadruped[0],
                                                            body_id)[2]
             self._link_urdf.append(inertia)
         # We need to use id+1 to index self._link_urdf because it has the base
@@ -451,19 +480,20 @@ class Quadruped(pybullet_env.PybulletEnv):
             [self._link_urdf[motor_id + 1] for motor_id in self._motor_link_ids])
 
     def _BuildJointNameToIdDict(self):
-        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
+        num_joints = self.pybullet_client.getNumJoints(self.quadruped[0])
         self._joint_name_to_id = {}
         for i in range(num_joints):
-            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
+            joint_info = self.pybullet_client.getJointInfo(self.quadruped[0], i)
             self._joint_name_to_id[joint_info[1].decode(
                 "UTF-8")] = joint_info[0]
 
     def _RemoveDefaultJointDamping(self):
-        num_joints = self.pybullet_client.getNumJoints(self.quadruped)
-        for i in range(num_joints):
-            joint_info = self.pybullet_client.getJointInfo(self.quadruped, i)
-            self.pybullet_client.changeDynamics(
-                joint_info[0], -1, linearDamping=0, angularDamping=0)
+        for robot in self.quadruped:
+            num_joints = self.pybullet_client.getNumJoints(robot)
+            for i in range(num_joints):
+                joint_info = self.pybullet_client.getJointInfo(robot, i)
+                self.pybullet_client.changeDynamics(
+                    joint_info[0], -1, linearDamping=0, angularDamping=0)
 
     def _BuildMotorIdList(self):
         self._motor_id_list = [
@@ -484,17 +514,17 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           Return the constraint id.
         """
-        fixed_constraint = self.pybullet_client.createConstraint(
-            parentBodyUniqueId=self.quadruped,
-            parentLinkIndex=-1,
-            childBodyUniqueId=-1,
-            childLinkIndex=-1,
-            jointType=self.pybullet_client.JOINT_FIXED,
-            jointAxis=[0, 0, 0],
-            parentFramePosition=[0, 0, 0],
-            childFramePosition=init_position,
-            childFrameOrientation=init_orientation)
-        return fixed_constraint
+        for robot in self.quadruped:
+            fixed_constraint = self.pybullet_client.createConstraint(
+                parentBodyUniqueId=robot,
+                parentLinkIndex=-1,
+                childBodyUniqueId=-1,
+                childLinkIndex=-1,
+                jointType=self.pybullet_client.JOINT_FIXED,
+                jointAxis=[0, 0, 0],
+                parentFramePosition=[0, 0, 0],
+                childFramePosition=init_position,
+                childFrameOrientation=init_orientation)
 
     def SetBaseMasses(self, base_mass):
         """Set the mass of minitaur's base.
@@ -507,13 +537,14 @@ class Quadruped(pybullet_env.PybulletEnv):
           ValueError: It is raised when the length of base_mass is not the same as
             the length of self._chassis_link_ids.
         """
-        if len(base_mass) != len(self._chassis_link_ids):
-            raise ValueError(
-                "The length of base_mass {} and self._chassis_link_ids {} are not "
-                "the same.".format(len(base_mass), len(self._chassis_link_ids)))
-        for chassis_id, chassis_mass in zip(self._chassis_link_ids, base_mass):
-            self.pybullet_client.changeDynamics(
-                self.quadruped, chassis_id, mass=chassis_mass)
+        for robot in self.quadruped:
+            if len(base_mass) != len(self._chassis_link_ids):
+                raise ValueError(
+                    "The length of base_mass {} and self._chassis_link_ids {} are not "
+                    "the same.".format(len(base_mass), len(self._chassis_link_ids)))
+            for chassis_id, chassis_mass in zip(self._chassis_link_ids, base_mass):
+                self.pybullet_client.changeDynamics(
+                    robot, chassis_id, mass=chassis_mass)
 
     def SetLegMasses(self, leg_masses):
         """Set the mass of the legs.
@@ -529,16 +560,17 @@ class Quadruped(pybullet_env.PybulletEnv):
           ValueError: It is raised when the length of masses is not equal to number
             of links + motors.
         """
-        if len(leg_masses) != len(self._leg_link_ids) + len(self._motor_link_ids):
-            raise ValueError("The number of values passed to SetLegMasses are "
-                             "different than number of leg links and motors.")
-        for leg_id, leg_mass in zip(self._leg_link_ids, leg_masses):
-            self.pybullet_client.changeDynamics(
-                self.quadruped, leg_id, mass=leg_mass)
-        motor_masses = leg_masses[len(self._leg_link_ids):]
-        for link_id, motor_mass in zip(self._motor_link_ids, motor_masses):
-            self.pybullet_client.changeDynamics(
-                self.quadruped, link_id, mass=motor_mass)
+        for robot in self.quadruped:
+            if len(leg_masses) != len(self._leg_link_ids) + len(self._motor_link_ids):
+                raise ValueError("The number of values passed to SetLegMasses are "
+                                "different than number of leg links and motors.")
+            for leg_id, leg_mass in zip(self._leg_link_ids, leg_masses):
+                self.pybullet_client.changeDynamics(
+                    robot, leg_id, mass=leg_mass)
+            motor_masses = leg_masses[len(self._leg_link_ids):]
+            for link_id, motor_mass in zip(self._motor_link_ids, motor_masses):
+                self.pybullet_client.changeDynamics(
+                    robot, link_id, mass=motor_mass)
 
     def SetBaseInertias(self, base_inertias):
         """Set the inertias of minitaur's base.
@@ -553,19 +585,20 @@ class Quadruped(pybullet_env.PybulletEnv):
             as the length of self._chassis_link_ids and base_inertias contains
             negative values.
         """
-        if len(base_inertias) != len(self._chassis_link_ids):
-            raise ValueError(
-                "The length of base_inertias {} and self._chassis_link_ids {} are "
-                "not the same.".format(
-                    len(base_inertias), len(self._chassis_link_ids)))
-        for chassis_id, chassis_inertia in zip(self._chassis_link_ids,
-                                               base_inertias):
-            for inertia_value in chassis_inertia:
-                if (np.asarray(inertia_value) < 0).any():
-                    raise ValueError(
-                        "Values in inertia matrix should be non-negative.")
-            self.pybullet_client.changeDynamics(
-                self.quadruped, chassis_id, localInertiaDiagonal=chassis_inertia)
+        for robot in self.quadruped:
+            if len(base_inertias) != len(self._chassis_link_ids):
+                raise ValueError(
+                    "The length of base_inertias {} and self._chassis_link_ids {} are "
+                    "not the same.".format(
+                        len(base_inertias), len(self._chassis_link_ids)))
+            for chassis_id, chassis_inertia in zip(self._chassis_link_ids,
+                                                base_inertias):
+                for inertia_value in chassis_inertia:
+                    if (np.asarray(inertia_value) < 0).any():
+                        raise ValueError(
+                            "Values in inertia matrix should be non-negative.")
+                self.pybullet_client.changeDynamics(
+                    robot, chassis_id, localInertiaDiagonal=chassis_inertia)
 
     def SetLegInertias(self, leg_inertias):
         """Set the inertias of the legs.
@@ -581,26 +614,26 @@ class Quadruped(pybullet_env.PybulletEnv):
           ValueError: It is raised when the length of inertias is not equal to
           the number of links + motors or leg_inertias contains negative values.
         """
+        for robot in self.quadruped:
+            if len(leg_inertias) != len(self._leg_link_ids) + len(self._motor_link_ids):
+                raise ValueError("The number of values passed to SetLegMasses are "
+                                "different than number of leg links and motors.")
+            for leg_id, leg_inertia in zip(self._leg_link_ids, leg_inertias):
+                for inertia_value in leg_inertias:
+                    if (np.asarray(inertia_value) < 0).any():
+                        raise ValueError(
+                            "Values in inertia matrix should be non-negative.")
+                self.pybullet_client.changeDynamics(
+                    robot, leg_id, localInertiaDiagonal=leg_inertia)
 
-        if len(leg_inertias) != len(self._leg_link_ids) + len(self._motor_link_ids):
-            raise ValueError("The number of values passed to SetLegMasses are "
-                             "different than number of leg links and motors.")
-        for leg_id, leg_inertia in zip(self._leg_link_ids, leg_inertias):
-            for inertia_value in leg_inertias:
-                if (np.asarray(inertia_value) < 0).any():
-                    raise ValueError(
-                        "Values in inertia matrix should be non-negative.")
-            self.pybullet_client.changeDynamics(
-                self.quadruped, leg_id, localInertiaDiagonal=leg_inertia)
-
-        motor_inertias = leg_inertias[len(self._leg_link_ids):]
-        for link_id, motor_inertia in zip(self._motor_link_ids, motor_inertias):
-            for inertia_value in motor_inertias:
-                if (np.asarray(inertia_value) < 0).any():
-                    raise ValueError(
-                        "Values in inertia matrix should be non-negative.")
-            self.pybullet_client.changeDynamics(
-                self.quadruped, link_id, localInertiaDiagonal=motor_inertia)
+            motor_inertias = leg_inertias[len(self._leg_link_ids):]
+            for link_id, motor_inertia in zip(self._motor_link_ids, motor_inertias):
+                for inertia_value in motor_inertias:
+                    if (np.asarray(inertia_value) < 0).any():
+                        raise ValueError(
+                            "Values in inertia matrix should be non-negative.")
+                self.pybullet_client.changeDynamics(
+                    robot, link_id, localInertiaDiagonal=motor_inertia)
 
     def SetFootFriction(self, foot_friction):
         """Set the lateral friction of the feet.
@@ -609,9 +642,10 @@ class Quadruped(pybullet_env.PybulletEnv):
           foot_friction: The lateral friction coefficient of the foot. This value is
             shared by all four feet.
         """
-        for link_id in self._foot_link_ids:
-            self.pybullet_client.changeDynamics(
-                self.quadruped, link_id, lateralFriction=foot_friction)
+        for robot in self.quadruped:
+            for link_id in self._foot_link_ids:
+                self.pybullet_client.changeDynamics(
+                    robot, link_id, lateralFriction=foot_friction)
 
     def SetFootRestitution(self, foot_restitution):
         """Set the coefficient of restitution at the feet.
@@ -620,18 +654,20 @@ class Quadruped(pybullet_env.PybulletEnv):
           foot_restitution: The coefficient of restitution (bounciness) of the feet.
             This value is shared by all four feet.
         """
-        for link_id in self._foot_link_ids:
-            self.pybullet_client.changeDynamics(
-                self.quadruped, link_id, restitution=foot_restitution)
+        for robot in self.quadruped:
+            for link_id in self._foot_link_ids:
+                self.pybullet_client.changeDynamics(
+                    robot, link_id, restitution=foot_restitution)
 
     def SetJointFriction(self, joint_frictions):
-        for knee_joint_id, friction in zip(self._foot_link_ids, joint_frictions):
-            self.pybullet_client.setJointMotorControl2(
-                bodyIndex=self.quadruped,
-                jointIndex=knee_joint_id,
-                controlMode=self.pybullet_client.VELOCITY_CONTROL,
-                targetVelocity=0,
-                force=friction)
+        for robot in self.quadruped:
+            for knee_joint_id, friction in zip(self._foot_link_ids, joint_frictions):
+                self.pybullet_client.setJointMotorControl2(
+                    bodyIndex=robot,
+                    jointIndex=knee_joint_id,
+                    controlMode=self.pybullet_client.VELOCITY_CONTROL,
+                    targetVelocity=0,
+                    force=friction)
 
     def ReceiveObservation(self):
         """Receive the observation from sensors.
@@ -639,32 +675,38 @@ class Quadruped(pybullet_env.PybulletEnv):
         This function is called once per step. The observations are only updated
         when this function is called.
         """
-        _, self._init_orientation_inv = self.pybullet_client.invertTransform(
-            position=[0, 0, 0], orientation=self.GetDefaultInitOrientation())
-        self._joint_states = self.pybullet_client.getJointStates(
-            self.quadruped, self._motor_id_list)
-        self._base_linear_vel, self._base_angular_vel = self.pybullet_client.getBaseVelocity(
-            self.quadruped)
-        self._base_position, orientation = (
-            self.pybullet_client.getBasePositionAndOrientation(self.quadruped))
-        # Computes the relative orientation relative to the robot's
-        # initial_orientation.
-        _, self._base_orientation = self.pybullet_client.multiplyTransforms(
-            positionA=[0, 0, 0],
-            orientationA=orientation,
-            positionB=[0, 0, 0],
-            orientationB=self._init_orientation_inv)
-        self._observation_history.appendleft(self.GetTrueObservation())
-        self._control_observation = self._GetControlObservation()
+        for i in range(self.num_robot):
+            _, self._init_orientation_inv = self.pybullet_client.invertTransform(
+                position=[0, 0, 0], orientation=self.GetDefaultInitOrientation()[i])
+            self._joint_states[i] = self.pybullet_client.getJointStates(
+                self.quadruped[i], self._motor_id_list)
+            self._base_linear_vel[i], self._base_angular_vel[i] = self.pybullet_client.getBaseVelocity(
+                self.quadruped[i])
+            self._base_position[i], orientation = (
+                self.pybullet_client.getBasePositionAndOrientation(self.quadruped[i]))
+            # Computes the relative orientation relative to the robot's
+            # initial_orientation.
+            _, self._base_orientation[i] = self.pybullet_client.multiplyTransforms(
+                positionA=[0, 0, 0],
+                orientationA=orientation,
+                positionB=[0, 0, 0],
+                orientationB=self._init_orientation_inv)
+
+        for i in range(self.num_robot):
+            self._observation_history[i].appendleft(self.GetTrueObservation()[i])
+        for i in range(self.num_robot):
+            self._control_observation[i] = self._GetControlObservation()[i]
+
         self.last_state_time = self._state_action_counter * self.sim_time_step
 
     def GetTrueObservation(self):
-        observation = []
-        observation.extend(self.GetTrueMotorAngles())
-        observation.extend(self.GetTrueMotorVelocities())
-        observation.extend(self.GetTrueMotorTorques())
-        observation.extend(self.GetTrueBaseOrientation())
-        observation.extend(self.GetTrueBaseRollPitchYawRate())
+        observation = [[] for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            observation[i].extend(self.GetTrueMotorAngles()[i])
+            observation[i].extend(self.GetTrueMotorVelocities()[i])
+            observation[i].extend(self.GetTrueMotorTorques()[i])
+            observation[i].extend(self.GetTrueBaseOrientation()[i])
+            observation[i].extend(self.GetTrueBaseRollPitchYawRate()[i])
         return observation
 
     def _get_observation(self):
@@ -690,24 +732,27 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           observation: The observation which was actually latency seconds ago.
         """
-        if latency <= 0 or len(self._observation_history) == 1:
-            observation = self._observation_history[0]
-        else:
-            n_steps_ago = int(latency / self.sim_time_step)
-            if n_steps_ago + 1 >= len(self._observation_history):
-                return self._observation_history[-1]
-            remaining_latency = latency - n_steps_ago * self.sim_time_step
-            blend_alpha = remaining_latency / self.sim_time_step
-            observation = (
-                (1.0 - blend_alpha) *
-                np.array(self._observation_history[n_steps_ago])
-                + blend_alpha * np.array(self._observation_history[n_steps_ago + 1]))
+        observation = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            if latency <= 0 or len(self._observation_history[i]) == 1:
+                observation[i] = self._observation_history[i][0]
+            else:
+                n_steps_ago = int(latency / self.sim_time_step)
+                if n_steps_ago + 1 >= len(self._observation_history[i]):
+                    observation[i] = self._observation_history[i][-1]
+                    continue
+                remaining_latency = latency - n_steps_ago * self.sim_time_step
+                blend_alpha = remaining_latency / self.sim_time_step
+                observation[i] = (
+                    (1.0 - blend_alpha) *
+                    np.array(self._observation_history[i][n_steps_ago])
+                    + blend_alpha * np.array(self._observation_history[i][n_steps_ago + 1]))
         return observation
 
     def _GetPDObservation(self):
         pd_delayed_observation = self._GetDelayedObservation(self._pd_latency)
-        q = pd_delayed_observation[0:self.num_motors]
-        qdot = pd_delayed_observation[self.num_motors:2 * self.num_motors]
+        q = [pd_delayed_observation[i][0:self.num_motors] for i in range(self.num_robot)]
+        qdot = [pd_delayed_observation[i][self.num_motors:2 * self.num_motors] for i in range(self.num_robot)]
         return (np.array(q), np.array(qdot))
 
     def _GetControlObservation(self):
@@ -799,8 +844,10 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           A tuple (roll, pitch, yaw) of the base in world frame.
         """
+        roll_pitch_yaw = [0 for _ in range(self.num_robot)]
         orientation = self.GetTrueBaseOrientation()
-        roll_pitch_yaw = transformations.euler_from_quaternion(orientation)
+        for i in range(self.num_robot):
+            roll_pitch_yaw[i] = transformations.euler_from_quaternion(orientation[i])
         return np.asarray(roll_pitch_yaw)
 
     def GetBaseRollPitchYaw(self):
@@ -811,19 +858,21 @@ class Quadruped(pybullet_env.PybulletEnv):
           A tuple (roll, pitch, yaw) of the base in world frame polluted by noise
           and latency.
         """
-        delayed_orientation = np.array(
-            self._control_observation[3 * self.num_motors:3 * self.num_motors + 4])
-        delayed_roll_pitch_yaw = transformations.euler_from_quaternion(
-            delayed_orientation)
-        roll_pitch_yaw = self._AddSensorNoise(
-            np.array(delayed_roll_pitch_yaw), self._observation_noise_stdev[3])
+        roll_pitch_yaw = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            delayed_orientation = np.array(
+                self._control_observation[i][3 * self.num_motors:3 * self.num_motors + 4])
+            delayed_roll_pitch_yaw = transformations.euler_from_quaternion(
+                delayed_orientation)
+            roll_pitch_yaw[i] = self._AddSensorNoise(
+                np.array(delayed_roll_pitch_yaw), self._observation_noise_stdev[3])
         return roll_pitch_yaw
 
     def GetDefaultInitJointPose(self):
         """Get default initial joint pose."""
         joint_pose = (self._init_motor_angle +
                       self._motor_offset) * self._motor_direction
-        return joint_pose
+        return [joint_pose for _ in range(self.num_robot)]
 
     def GetTrueMotorAngles(self):
         """Gets the eight motor angles at the current moment, mapped to [-pi, pi].
@@ -831,10 +880,12 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           Motor angles, mapped to [-pi, pi].
         """
-        motor_angles = [state[0] for state in self._joint_states]
-        motor_angles = np.multiply(
-            np.asarray(motor_angles) - np.asarray(self._motor_offset),
-            self._motor_direction)
+        motor_angles = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            motor_angles[i] = [state[0] for state in self._joint_states[i]]
+            motor_angles[i] = np.multiply(
+                np.asarray(motor_angles[i]) - np.asarray(self._motor_offset),
+                self._motor_direction)
         return motor_angles
 
     def GetMotorAngles(self):
@@ -846,17 +897,20 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           Motor angles polluted by noise and latency, mapped to [-pi, pi].
         """
-        motor_angles = self._AddSensorNoise(
-            np.array(self._control_observation[0:self.num_motors]),
-            self._observation_noise_stdev[0])
-        # map to pi2pi
-        mapped_angles = copy.deepcopy(motor_angles)
-        for i in range(len(motor_angles)):
-            mapped_angles[i] = math.fmod(motor_angles[i], TWO_PI)
-            if mapped_angles[i] >= math.pi:
-                mapped_angles[i] -= TWO_PI
-            elif mapped_angles[i] < -math.pi:
-                mapped_angles[i] += TWO_PI
+        motor_angles = [0 for _ in range(self.num_robot)]
+        mapped_angles = [0 for _ in range(self.num_robot)]
+        for j in range(self.num_robot):
+            motor_angles[j] = self._AddSensorNoise(
+                np.array(self._control_observation[j][0:self.num_motors]),
+                self._observation_noise_stdev[0])
+            # map to pi2pi
+            mapped_angles[j] = copy.deepcopy(motor_angles[j])
+            for i in range(len(motor_angles[j])):
+                mapped_angles[j][i] = math.fmod(motor_angles[j][i], TWO_PI)
+                if mapped_angles[j][i] >= math.pi:
+                    mapped_angles[j][i] -= TWO_PI
+                elif mapped_angles[j][i] < -math.pi:
+                    mapped_angles[j][i] += TWO_PI
         return mapped_angles
 
     def GetTrueMotorVelocities(self):
@@ -865,9 +919,11 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           Velocities of all eight motors.
         """
-        motor_velocities = [state[1] for state in self._joint_states]
+        motor_velocities = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            motor_velocities[i] = [state[1] for state in self._joint_states[i]]
 
-        motor_velocities = np.multiply(motor_velocities, self._motor_direction)
+            motor_velocities[i] = np.multiply(motor_velocities[i], self._motor_direction)
         return motor_velocities
 
     def GetMotorVelocities(self):
@@ -877,10 +933,14 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           Velocities of all eight motors polluted by noise and latency.
         """
-        return self._AddSensorNoise(
-            np.array(self._control_observation[self.num_motors:2 *
+        motor_velocities = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            motor_velocities[i] = self._AddSensorNoise(
+            np.array(self._control_observation[i][self.num_motors:2 *
                                                self.num_motors]),
             self._observation_noise_stdev[1])
+        
+        return motor_velocities
 
     def GetTrueMotorTorques(self):
         """Get the amount of torque the motors are exerting.
@@ -897,20 +957,24 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           Motor torques of all eight motors polluted by noise and latency.
         """
-        return self._AddSensorNoise(
-            np.array(self._control_observation[2 * self.num_motors:3 *
+        motor_torques = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            motor_torques[i] = self._AddSensorNoise(
+            np.array(self._control_observation[i][2 * self.num_motors:3 *
                                                self.num_motors]),
             self._observation_noise_stdev[2])
+        
+        return motor_torques
 
-    def GetEnergyConsumptionPerControlStep(self):
-        """Get the amount of energy used in last one time step.
+    # def GetEnergyConsumptionPerControlStep(self):
+    #     """Get the amount of energy used in last one time step.
 
-        Returns:
-          Energy Consumption based on motor velocities and torques (Nm^2/s).
-        """
-        return np.abs(np.dot(
-            self.GetMotorTorques(),
-            self.GetMotorVelocities())) * self.sim_time_step * self._action_repeat
+    #     Returns:
+    #       Energy Consumption based on motor velocities and torques (Nm^2/s).
+    #     """
+    #     return np.abs(np.dot(
+    #         self.GetMotorTorques(),
+    #         self.GetMotorVelocities())) * self.sim_time_step * self._action_repeat
 
     def GetTrueBaseOrientation(self):
         """Get the orientation of minitaur's base, represented as quaternion.
@@ -927,7 +991,11 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           The orientation of minitaur's base polluted by noise and latency.
         """
-        return transformations.quaternion_from_euler(self.GetBaseRollPitchYaw())
+        base_orientation = [0 for _ in range(self.num_robot)]
+        rpy = self.GetBaseRollPitchYaw()
+        for i in range(self.num_robot):
+            base_orientation[i] = transformations.quaternion_from_euler(rpy[i])
+        return base_orientation
 
     def GetTrueBaseRollPitchYawRate(self):
         """Get the rate of orientation change of the minitaur's base in euler angle.
@@ -935,11 +1003,15 @@ class Quadruped(pybullet_env.PybulletEnv):
         Returns:
           rate of (roll, pitch, yaw) change of the minitaur's base.
         """
-        angular_velocity = self.pybullet_client.getBaseVelocity(self.quadruped)[
-            1]
+        base_rpy = [0 for _ in range(self.num_robot)]
+        angular_velocity = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            angular_velocity[i] = self.pybullet_client.getBaseVelocity(self.quadruped[i])[
+                1]
         orientation = self.GetTrueBaseOrientation()
-        return self.TransformAngularVelocityToLocalFrame(angular_velocity,
-                                                         orientation)
+        base_rpy = self.TransformAngularVelocityToLocalFrame(angular_velocity,
+                                                        orientation)
+        return base_rpy
 
     def TransformAngularVelocityToLocalFrame(self, angular_velocity, orientation):
         """Transform the angular velocity from world frame to robot's frame.
@@ -954,13 +1026,16 @@ class Quadruped(pybullet_env.PybulletEnv):
         # Treat angular velocity as a position vector, then transform based on the
         # orientation given by dividing (or multiplying with inverse).
         # Get inverse quaternion assuming the vector is at 0,0,0 origin.
-        _, orientation_inversed = self.pybullet_client.invertTransform([0, 0, 0],
-                                                                       orientation)
-        # Transform the angular_velocity at neutral orientation using a neutral
-        # translation and reverse of the given orientation.
-        relative_velocity, _ = self.pybullet_client.multiplyTransforms(
-            [0, 0, 0], orientation_inversed, angular_velocity,
-            transformations.quaternion_from_euler([0, 0, 0]))
+        orientation_inversed = [0 for _ in range(self.num_robot)]
+        relative_velocity = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            _, orientation_inversed[i] = self.pybullet_client.invertTransform([0, 0, 0],
+                                                                        orientation[i])
+            # Transform the angular_velocity at neutral orientation using a neutral
+            # translation and reverse of the given orientation.
+            relative_velocity[i], _ = self.pybullet_client.multiplyTransforms(
+                [0, 0, 0], orientation_inversed[i], angular_velocity[i],
+                transformations.quaternion_from_euler([0, 0, 0]))
         return np.asarray(relative_velocity)
 
     def GetBaseRollPitchYawRate(self):
@@ -971,28 +1046,33 @@ class Quadruped(pybullet_env.PybulletEnv):
           rate of (roll, pitch, yaw) change of the minitaur's base polluted by noise
           and latency.
         """
-        return self._AddSensorNoise(
-            np.array(self._control_observation[3 * self.num_motors +
+        base_rpy = [0 for _ in range(self.num_robot)]
+        for i in range(self.num_robot):
+            base_rpy[i] = self._AddSensorNoise(
+            np.array(self._control_observation[i][3 * self.num_motors +
                                                4:3 * self.num_motors + 7]),
-            self._observation_noise_stdev[4])
+                                               self._observation_noise_stdev[4])
+        return base_rpy
 
     def GetFootLinkIDs(self):
         """Get list of IDs for all foot links."""
         return self._foot_link_ids
 
     def _SetMotorTorqueById(self, motor_id, torque):
-        self.pybullet_client.setJointMotorControl2(
-            bodyIndex=self.quadruped,
-            jointIndex=motor_id,
-            controlMode=self.pybullet_client.TORQUE_CONTROL,
-            force=torque)
+        for i in range(self.num_robot):
+            self.pybullet_client.setJointMotorControl2(
+                bodyIndex=self.quadruped[i],
+                jointIndex=motor_id[i],
+                controlMode=self.pybullet_client.TORQUE_CONTROL,
+                force=torque[i])
 
     def _SetMotorTorqueByIds(self, motor_ids, torques):
-        self.pybullet_client.setJointMotorControlArray(
-            bodyIndex=self.quadruped,
-            jointIndices=motor_ids,
-            controlMode=self.pybullet_client.TORQUE_CONTROL,
-            forces=torques)
+        for i in range(self.num_robot):
+            self.pybullet_client.setJointMotorControlArray(
+                bodyIndex=self.quadruped[i],
+                jointIndices=motor_ids[i],
+                controlMode=self.pybullet_client.TORQUE_CONTROL,
+                forces=torques[i])
 
     def GetURDFFile(self):
         return self._urdf_file
@@ -1007,14 +1087,15 @@ class Quadruped(pybullet_env.PybulletEnv):
 
     def _ApplyOverheatProtection(self, actual_torque):
         if self._motor_overheat_protection:
-            for i in range(self.num_motors):
-                if abs(actual_torque[i]) > OVERHEAT_SHUTDOWN_TORQUE:
-                    self._overheat_counter[i] += 1
-                else:
-                    self._overheat_counter[i] = 0
-                if (self._overheat_counter[i] >
-                        OVERHEAT_SHUTDOWN_TIME / self.sim_time_step):
-                    self._motor_enabled_list[i] = False
+            for j in range(self.num_robot):
+                for i in range(self.num_motors):
+                    if abs(actual_torque[j][i]) > OVERHEAT_SHUTDOWN_TORQUE:
+                        self._overheat_counter[j][i] += 1
+                    else:
+                        self._overheat_counter[j][i] = 0
+                    if (self._overheat_counter[j][i] >
+                            OVERHEAT_SHUTDOWN_TIME / self.sim_time_step):
+                        self._motor_enabled_list[j][i] = False
 
     def GetBaseMassesFromURDF(self):
         """Get the mass of the base from the URDF file."""

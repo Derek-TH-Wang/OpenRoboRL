@@ -43,9 +43,15 @@ def flatten_observations(observation_dict, observation_excluded=()):
     observation_excluded = [observation_excluded]
   observations = []
   for key, value in observation_dict.items():
+    num_robot = len(value)
     if key not in observation_excluded:
-      observations.append(np.asarray(value).flatten())
-  flat_observations = np.concatenate(observations)
+      for i in range(num_robot):
+        observations.append(value[i])
+  obs = [[] for _ in range(num_robot)]
+  for i in range(len(observation_dict.keys())):
+    for j in range(num_robot):
+      obs[j].extend(observations[i*num_robot+j])
+  flat_observations = np.array(obs)
   if not observation_excluded:
     return flat_observations
   else:

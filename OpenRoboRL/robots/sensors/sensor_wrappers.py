@@ -80,7 +80,7 @@ class HistoricSensorWrapper(SensorWrapper):
   def __init__(self,
                wrapped_sensor: sensor.BoxSpaceSensor,
                num_history: int,
-               append_history_axis: bool = False,
+              #  append_history_axis: bool = False,
                name: typing.Text = None) -> None:
     """Constructs HistoricSensorWrapper.
 
@@ -98,18 +98,18 @@ class HistoricSensorWrapper(SensorWrapper):
         sensor name>).
     """
     self._num_history = num_history
-    self._append_history_axis = append_history_axis
+    # self._append_history_axis = append_history_axis
     name = name or "HistoricSensorWrapper(%s)" % wrapped_sensor.get_name()
-    if self._append_history_axis:
-      lower_bound = np.tile(
-          np.expand_dims(wrapped_sensor.get_lower_bound(), -1),
-          (1, self._num_history))
-      upper_bound = np.tile(
-          np.expand_dims(wrapped_sensor.get_upper_bound(), -1),
-          (1, self._num_history))
-    else:
-      lower_bound = np.tile(wrapped_sensor.get_lower_bound(), self._num_history)
-      upper_bound = np.tile(wrapped_sensor.get_upper_bound(), self._num_history)
+    # if self._append_history_axis:
+    #   lower_bound = np.tile(
+    #       np.expand_dims(wrapped_sensor.get_lower_bound(), -1),
+    #       (1, self._num_history))
+    #   upper_bound = np.tile(
+    #       np.expand_dims(wrapped_sensor.get_upper_bound(), -1),
+    #       (1, self._num_history))
+    # else:
+    lower_bound = np.tile(wrapped_sensor.get_lower_bound(), self._num_history)
+    upper_bound = np.tile(wrapped_sensor.get_upper_bound(), self._num_history)
     shape = lower_bound.shape
 
     self._history_buffer = None
@@ -136,10 +136,18 @@ class HistoricSensorWrapper(SensorWrapper):
 
   def get_observation(self) -> _ARRAY:
     """Returns the observation by concatenating the history buffer."""
-    if self._append_history_axis:
-      return np.stack(self._history_buffer, axis=-1)
-    else:
-      return np.concatenate(self._history_buffer)
+    # if self._append_history_axis:
+    #   return np.stack(self._history_buffer, axis=-1)
+    # else:
+    # return np.concatenate(self._history_buffer)
+    raw = len(self._history_buffer[0])  # num_robot
+    num_sensor_data = len(self._history_buffer[0][0])
+    cal = num_sensor_data * self._num_history   # num_sensor_data
+    obs = np.zeros([raw, cal])
+    for i in range(self._num_history):
+      for j in range(raw):
+        obs[j][i*num_sensor_data:(i+1)*num_sensor_data] = self._history_buffer[i][j]
+    return obs
 
   @property
   def history_buffer(self):

@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import logging
 import os
+import copy
 import numpy as np
 
 from task import pose3d
@@ -36,6 +37,7 @@ class ImitationTask(quadruped.Quadruped):
 
   def __init__(self,
                robot,
+               num_robot=1,
                weight=1.0,
                ref_motion_filenames=None,
                enable_cycle_sync=True,
@@ -58,7 +60,7 @@ class ImitationTask(quadruped.Quadruped):
                root_pose_err_scale=20,
                root_velocity_err_scale=2,
                perturb_init_state_prob=0.0,
-               tar_obs_noise=None,):
+               tar_obs_noise=None):
     """Initializes the task.
 
     Args:
@@ -128,7 +130,7 @@ class ImitationTask(quadruped.Quadruped):
     self._clip_change_time = clip_time_min
 
     self._enable_cycle_sync = enable_cycle_sync
-    self._active_motion_id = -1
+    self._active_motion_id = [-1 for _ in range(num_robot)]
     self._motion_time_offset = 0.0
     self._episode_start_time_offset = 0.0
     self._ref_model = None
@@ -139,8 +141,8 @@ class ImitationTask(quadruped.Quadruped):
     self._tar_obs_noise = tar_obs_noise
 
     self._prev_motion_phase = 0
-    self._origin_offset_rot = np.array([0, 0, 0, 1])
-    self._origin_offset_pos = np.zeros(motion_data.MotionData.POS_SIZE)
+    self._origin_offset_rot = [np.array([0, 0, 0, 1]) for _ in range(num_robot)]
+    self._origin_offset_pos = [np.zeros(motion_data.MotionData.POS_SIZE) for _ in range(num_robot)]
 
     # reward function parameters
     self._pose_weight = pose_weight
@@ -156,7 +158,7 @@ class ImitationTask(quadruped.Quadruped):
     self._root_pose_err_scale = root_pose_err_scale
     self._root_velocity_err_scale = root_velocity_err_scale
 
-    super(ImitationTask, self).__init__(robot)
+    super(ImitationTask, self).__init__(robot, num_robot=num_robot)
 
     return
 
@@ -169,8 +171,8 @@ class ImitationTask(quadruped.Quadruped):
     self._episode_start_time_offset = 0.0
 
     if (self._ref_motions is None or self.hard_reset):
-      self._ref_motions = self._load_ref_motions(self._ref_motion_filenames)
-      self._active_motion_id = self._sample_ref_motion()
+      self._ref_motions = [self._load_ref_motions(self._ref_motion_filenames) for _ in range(self.num_robot)]
+      self._active_motion_id = [self._sample_ref_motion() for _ in range(self.num_robot)]
 
     if (self._ref_model is None or self.hard_reset):
       self._ref_model = self._build_ref_model()
@@ -213,41 +215,45 @@ class ImitationTask(quadruped.Quadruped):
     foot_links = self.GetFootLinkIDs()
     ground = self.get_ground()
 
-    contact_fall = False
-    # sometimes the robot can be initialized with some ground penetration
-    # so do not check for contacts until after the first env step.
-    if self.env_step_counter > 0:
-      robot_ground_contacts = self.pybullet_client.getContactPoints(
-          bodyA=self.quadruped, bodyB=ground)
+    contact_fall = [False for _ in range(self.num_robot)]
+    root_pos_fail = [False for _ in range(self.num_robot)]
+    root_rot_fail = [False for _ in range(self.num_robot)]
+    done = [False for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      # sometimes the robot can be initialized with some ground penetration
+      # so do not check for contacts until after the first env step.
+      if self.env_step_counter > 0:
+        robot_ground_contacts = self.pybullet_client.getContactPoints(
+            bodyA=self.quadruped[i], bodyB=ground)
 
-      for contact in robot_ground_contacts:
-        if contact[3] not in foot_links:
-          contact_fall = True
-          break
+        for contact in robot_ground_contacts:
+          if contact[3] not in foot_links:
+            contact_fall[i] = True
+            break
 
-    root_pos_ref, root_rot_ref = self.pybullet_client.getBasePositionAndOrientation(
-        self.get_ref_model())
-    root_pos_sim, root_rot_sim = self.pybullet_client.getBasePositionAndOrientation(
-        self.quadruped)
+      root_pos_ref, root_rot_ref = self.pybullet_client.getBasePositionAndOrientation(
+          self.get_ref_model()[i])
+      root_pos_sim, root_rot_sim = self.pybullet_client.getBasePositionAndOrientation(
+          self.quadruped[i])
 
-    root_pos_diff = np.array(root_pos_ref) - np.array(root_pos_sim)
-    root_pos_fail = (
-        root_pos_diff.dot(root_pos_diff) >
-        dist_fail_threshold * dist_fail_threshold)
+      root_pos_diff = np.array(root_pos_ref) - np.array(root_pos_sim)
+      root_pos_fail[i] = (
+          root_pos_diff.dot(root_pos_diff) >
+          dist_fail_threshold * dist_fail_threshold)
 
-    root_rot_diff = transformations.quaternion_multiply(
-        np.array(root_rot_ref),
-        transformations.quaternion_conjugate(np.array(root_rot_sim)))
-    _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(
-        root_rot_diff)
-    root_rot_diff_angle = motion_util.normalize_rotation_angle(
-        root_rot_diff_angle)
-    root_rot_fail = (np.abs(root_rot_diff_angle) > rot_fail_threshold)
+      root_rot_diff = transformations.quaternion_multiply(
+          np.array(root_rot_ref),
+          transformations.quaternion_conjugate(np.array(root_rot_sim)))
+      _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(
+          root_rot_diff)
+      root_rot_diff_angle = motion_util.normalize_rotation_angle(
+          root_rot_diff_angle)
+      root_rot_fail[i] = (np.abs(root_rot_diff_angle) > rot_fail_threshold)
 
-    done = motion_over \
-        or contact_fall \
-        or root_pos_fail \
-        or root_rot_fail
+      done[i] = motion_over \
+          or contact_fall[i] \
+          or root_pos_fail[i] \
+          or root_rot_fail[i]
 
     return done
 
@@ -257,7 +263,7 @@ class ImitationTask(quadruped.Quadruped):
     Returns:
       Number of reference motions.
     """
-    return len(self._ref_motions)
+    return len(self._ref_motions[0])
 
   def get_num_tar_frames(self):
     """Get the number of target frames to include in the observations.
@@ -277,10 +283,12 @@ class ImitationTask(quadruped.Quadruped):
     Returns:
       Boolean indicating if the motion is over.
     """
+    is_over = [False for _ in range(self.num_robot)]
     time = self._get_motion_time()
     motion = self.get_active_motion()
-    is_over = motion.is_over(time)
-    return is_over
+    for i in range(self.num_robot):
+      is_over[i] = motion[i].is_over(time)
+    return all(is_over)
 
   def get_active_motion(self):
     """Get index of the active reference motion currently being imitated.
@@ -288,7 +296,10 @@ class ImitationTask(quadruped.Quadruped):
     Returns:
       Index of the active reference motion.
     """
-    return self._ref_motions[self._active_motion_id]
+    motion = []
+    for i in range(self.num_robot):
+      motion.append(self._ref_motions[i][self._active_motion_id[i]])
+    return motion
 
   def build_target_obs(self):
     """Constructs the target observations, consisting of a sequence of
@@ -307,31 +318,34 @@ class ImitationTask(quadruped.Quadruped):
     ref_base_pos = self._get_ref_base_position()
     sim_base_rot = np.array(self.GetBaseOrientation())
 
-    heading = motion_util.calc_heading(sim_base_rot)
-    if self._tar_obs_noise is not None:
-      heading += self._randn(0, self._tar_obs_noise[0])
-    inv_heading_rot = transformations.quaternion_about_axis(-heading, [0, 0, 1])
+    tar_obs = [[] for _ in range(self.num_robot)]
+    tar_poses = [[] for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      heading = motion_util.calc_heading(sim_base_rot[i])
+      if self._tar_obs_noise is not None:
+        heading += self._randn(0, self._tar_obs_noise[0])
+      inv_heading_rot = transformations.quaternion_about_axis(-heading, [0, 0, 1])
 
-    for step in self._tar_frame_steps:
-      tar_time = time0 + step * dt
-      tar_pose = self._calc_ref_pose(tar_time)
+      for step in self._tar_frame_steps:
+        tar_time = time0 + step * dt
+        tar_pose = self._calc_ref_pose(tar_time)
 
-      tar_root_pos = motion.get_frame_root_pos(tar_pose)
-      tar_root_rot = motion.get_frame_root_rot(tar_pose)
+        tar_root_pos = motion[i].get_frame_root_pos(tar_pose[i])
+        tar_root_rot = motion[i].get_frame_root_rot(tar_pose[i])
 
-      tar_root_pos -= ref_base_pos
-      tar_root_pos = pose3d.QuaternionRotatePoint(tar_root_pos, inv_heading_rot)
+        tar_root_pos -= ref_base_pos[i]
+        tar_root_pos = pose3d.QuaternionRotatePoint(tar_root_pos, inv_heading_rot)
 
-      tar_root_rot = transformations.quaternion_multiply(
-          inv_heading_rot, tar_root_rot)
-      tar_root_rot = motion_util.standardize_quaternion(tar_root_rot)
+        tar_root_rot = transformations.quaternion_multiply(
+            inv_heading_rot, tar_root_rot)
+        tar_root_rot = motion_util.standardize_quaternion(tar_root_rot)
 
-      motion.set_frame_root_pos(tar_root_pos, tar_pose)
-      motion.set_frame_root_rot(tar_root_rot, tar_pose)
+        motion[i].set_frame_root_pos(tar_root_pos, tar_pose[i])
+        motion[i].set_frame_root_rot(tar_root_rot, tar_pose[i])
 
-      tar_poses.append(tar_pose)
+        tar_poses[i].append(tar_pose[i])
 
-    tar_obs = np.concatenate(tar_poses, axis=-1)
+      tar_obs[i] = np.concatenate(tar_poses[i], axis=-1)
 
     return tar_obs
 
@@ -350,18 +364,19 @@ class ImitationTask(quadruped.Quadruped):
     pose_size = self.get_pose_size()
     low = np.inf * np.ones(pose_size)
     high = -np.inf * np.ones(pose_size)
-    for m in self._ref_motions:
-      curr_frames = m.get_frames()
-      curr_low = np.min(curr_frames, axis=0)
-      curr_high = np.max(curr_frames, axis=0)
-      low = np.minimum(low, curr_low)
-      high = np.maximum(high, curr_high)
-
     motion = self.get_active_motion()
-    motion.set_frame_root_pos(-pos_bound, low)
-    motion.set_frame_root_pos(pos_bound, high)
-    motion.set_frame_root_rot(-rot_bound, low)
-    motion.set_frame_root_rot(rot_bound, high)
+    for i in range(self.num_robot):
+      for m in self._ref_motions[i]:
+        curr_frames = m.get_frames()
+        curr_low = np.min(curr_frames, axis=0)
+        curr_high = np.max(curr_frames, axis=0)
+        low = np.minimum(low, curr_low)
+        high = np.maximum(high, curr_high)
+
+      motion[i].set_frame_root_pos(-pos_bound, low)
+      motion[i].set_frame_root_pos(pos_bound, high)
+      motion[i].set_frame_root_rot(-rot_bound, low)
+      motion[i].set_frame_root_rot(rot_bound, high)
 
     num_tar_frames = self.get_num_tar_frames()
     low = np.concatenate([low] * num_tar_frames, axis=-1)
@@ -382,38 +397,43 @@ class ImitationTask(quadruped.Quadruped):
     root_pose_reward = self._calc_reward_root_pose()
     root_velocity_reward = self._calc_reward_root_velocity()
 
-    reward = self._pose_weight * pose_reward \
-             + self._velocity_weight * velocity_reward \
-             + self._end_effector_weight * end_effector_reward \
-             + self._root_pose_weight * root_pose_reward \
-             + self._root_velocity_weight * root_velocity_reward
+    reward = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      reward[i] = self._pose_weight * pose_reward[i] \
+              + self._velocity_weight * velocity_reward[i] \
+              + self._end_effector_weight * end_effector_reward[i] \
+              + self._root_pose_weight * root_pose_reward[i] \
+              + self._root_velocity_weight * root_velocity_reward[i]
+      reward[i] *= self._weight
 
-    return reward * self._weight
+    return reward
 
   def _calc_reward_pose(self):
     """Get the pose reward."""
     sim_model = self.quadruped
     ref_model = self._ref_model
 
-    pose_err = 0.0
     num_joints = self._get_num_joints()
 
-    for j in range(num_joints):
-      j_state_ref = self.pybullet_client.getJointStateMultiDof(ref_model, j)
-      j_state_sim = self.pybullet_client.getJointStateMultiDof(sim_model, j)
-      j_pose_ref = np.array(j_state_ref[0])
-      j_pose_sim = np.array(j_state_sim[0])
+    pose_reward = [0 for _ in range(self.num_robot)]
+    pose_err = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      for j in range(num_joints):
+        j_state_ref = self.pybullet_client.getJointStateMultiDof(ref_model[i], j)
+        j_state_sim = self.pybullet_client.getJointStateMultiDof(sim_model[i], j)
+        j_pose_ref = np.array(j_state_ref[0])
+        j_pose_sim = np.array(j_state_sim[0])
 
-      j_size_ref = len(j_pose_ref)
-      j_size_sim = len(j_pose_sim)
+        j_size_ref = len(j_pose_ref)
+        j_size_sim = len(j_pose_sim)
 
-      if (j_size_ref > 0):
-        assert (j_size_ref == j_size_sim)
-        j_pose_diff = j_pose_ref - j_pose_sim
-        j_pose_err = j_pose_diff.dot(j_pose_diff)
-        pose_err += j_pose_err
+        if (j_size_ref > 0):
+          assert (j_size_ref == j_size_sim)
+          j_pose_diff = j_pose_ref - j_pose_sim
+          j_pose_err = j_pose_diff.dot(j_pose_diff)
+          pose_err[i] += j_pose_err
 
-    pose_reward = np.exp(-self._pose_err_scale * pose_err)
+      pose_reward[i] = np.exp(-self._pose_err_scale * pose_err[i])
 
     return pose_reward
 
@@ -422,25 +442,27 @@ class ImitationTask(quadruped.Quadruped):
     sim_model = self.quadruped
     ref_model = self._ref_model
 
-    vel_err = 0.0
     num_joints = self._get_num_joints()
 
-    for j in range(num_joints):
-      j_state_ref = self.pybullet_client.getJointStateMultiDof(ref_model, j)
-      j_state_sim = self.pybullet_client.getJointStateMultiDof(sim_model, j)
-      j_vel_ref = np.array(j_state_ref[1])
-      j_vel_sim = np.array(j_state_sim[1])
+    vel_reward = [0 for _ in range(self.num_robot)]
+    vel_err = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      for j in range(num_joints):
+        j_state_ref = self.pybullet_client.getJointStateMultiDof(ref_model[i], j)
+        j_state_sim = self.pybullet_client.getJointStateMultiDof(sim_model[i], j)
+        j_vel_ref = np.array(j_state_ref[1])
+        j_vel_sim = np.array(j_state_sim[1])
 
-      j_size_ref = len(j_vel_ref)
-      j_size_sim = len(j_vel_sim)
+        j_size_ref = len(j_vel_ref)
+        j_size_sim = len(j_vel_sim)
 
-      if (j_size_ref > 0):
-        assert (j_size_sim == j_size_ref)
-        j_vel_diff = j_vel_ref - j_vel_sim
-        j_vel_err = j_vel_diff.dot(j_vel_diff)
-        vel_err += j_vel_err
+        if (j_size_ref > 0):
+          assert (j_size_sim == j_size_ref)
+          j_vel_diff = j_vel_ref - j_vel_sim
+          j_vel_err = j_vel_diff.dot(j_vel_diff)
+          vel_err[i] += j_vel_err
 
-    vel_reward = np.exp(-self._velocity_err_scale * vel_err)
+      vel_reward[i] = np.exp(-self._velocity_err_scale * vel_err[i])
 
     return vel_reward
 
@@ -456,40 +478,43 @@ class ImitationTask(quadruped.Quadruped):
 
     heading_rot_ref = self._calc_heading_rot(root_rot_ref)
     heading_rot_sim = self._calc_heading_rot(root_rot_sim)
-    inv_heading_rot_ref = transformations.quaternion_conjugate(heading_rot_ref)
-    inv_heading_rot_sim = transformations.quaternion_conjugate(heading_rot_sim)
 
-    end_eff_err = 0.0
     num_joints = self._get_num_joints()
     height_err_scale = self._end_effector_height_err_scale
+    
+    end_effector_reward = [0 for _ in range(self.num_robot)]
+    end_eff_err = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      inv_heading_rot_ref = transformations.quaternion_conjugate(heading_rot_ref[i])
+      inv_heading_rot_sim = transformations.quaternion_conjugate(heading_rot_sim[i])
 
-    for j in range(num_joints):
-      is_end_eff = (j in self._foot_link_ids)
-      if (is_end_eff):
-        end_state_ref = self.pybullet_client.getLinkState(ref_model, j)
-        end_state_sim = self.pybullet_client.getLinkState(sim_model, j)
-        end_pos_ref = np.array(end_state_ref[0])
-        end_pos_sim = np.array(end_state_sim[0])
+      for j in range(num_joints):
+        is_end_eff = (j in self._foot_link_ids)
+        if (is_end_eff):
+          end_state_ref = self.pybullet_client.getLinkState(ref_model[i], j)
+          end_state_sim = self.pybullet_client.getLinkState(sim_model[i], j)
+          end_pos_ref = np.array(end_state_ref[0])
+          end_pos_sim = np.array(end_state_sim[0])
 
-        rel_end_pos_ref = end_pos_ref - root_pos_ref
-        rel_end_pos_ref = pose3d.QuaternionRotatePoint(rel_end_pos_ref,
-                                                       inv_heading_rot_ref)
+          rel_end_pos_ref = end_pos_ref - root_pos_ref[i]
+          rel_end_pos_ref = pose3d.QuaternionRotatePoint(rel_end_pos_ref,
+                                                        inv_heading_rot_ref)
 
-        rel_end_pos_sim = end_pos_sim - root_pos_sim
-        rel_end_pos_sim = pose3d.QuaternionRotatePoint(rel_end_pos_sim,
-                                                       inv_heading_rot_sim)
+          rel_end_pos_sim = end_pos_sim - root_pos_sim[i]
+          rel_end_pos_sim = pose3d.QuaternionRotatePoint(rel_end_pos_sim,
+                                                        inv_heading_rot_sim)
 
-        rel_end_pos_diff = rel_end_pos_ref - rel_end_pos_sim
-        end_pos_diff_height = end_pos_ref[2] - end_pos_sim[2]
+          rel_end_pos_diff = rel_end_pos_ref - rel_end_pos_sim
+          end_pos_diff_height = end_pos_ref[2] - end_pos_sim[2]
 
-        end_pos_err = (
-            rel_end_pos_diff[0] * rel_end_pos_diff[0] +
-            rel_end_pos_diff[1] * rel_end_pos_diff[1] +
-            height_err_scale * end_pos_diff_height * end_pos_diff_height)
+          end_pos_err = (
+              rel_end_pos_diff[0] * rel_end_pos_diff[0] +
+              rel_end_pos_diff[1] * rel_end_pos_diff[1] +
+              height_err_scale * end_pos_diff_height * end_pos_diff_height)
 
-        end_eff_err += end_pos_err
+          end_eff_err[i] += end_pos_err
 
-    end_effector_reward = np.exp(-self._end_effector_err_scale * end_eff_err)
+      end_effector_reward[i] = np.exp(-self._end_effector_err_scale * end_eff_err[i])
 
     return end_effector_reward
 
@@ -500,18 +525,24 @@ class ImitationTask(quadruped.Quadruped):
     root_pos_sim = self._get_sim_base_position()
     root_rot_sim = self._get_sim_base_rotation()
 
-    root_pos_diff = root_pos_ref - root_pos_sim
-    root_pos_err = root_pos_diff.dot(root_pos_diff)
+    root_pose_reward = [0 for _ in range(self.num_robot)]
+    root_pose_err = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      root_pos_diff = root_pos_ref[i] - root_pos_sim[i]
+      root_pos_err = root_pos_diff.dot(root_pos_diff)
 
-    root_rot_diff = transformations.quaternion_multiply(
-        root_rot_ref, transformations.quaternion_conjugate(root_rot_sim))
-    _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(root_rot_diff)
-    root_rot_diff_angle = motion_util.normalize_rotation_angle(
-        root_rot_diff_angle)
-    root_rot_err = root_rot_diff_angle * root_rot_diff_angle
+      root_rot_diff = transformations.quaternion_multiply(
+          root_rot_ref[i], transformations.quaternion_conjugate(root_rot_sim[i]))
+      # if root_rot_diff[0] == np.nan:
+      #   print(11)
+      _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(root_rot_diff)
+      root_rot_diff_angle = motion_util.normalize_rotation_angle(
+          root_rot_diff_angle)
+      root_rot_err = root_rot_diff_angle * root_rot_diff_angle
 
-    root_pose_err = root_pos_err + 0.5 * root_rot_err
-    root_pose_reward = np.exp(-self._root_pose_err_scale * root_pose_err)
+      root_pose_err[i] += root_pos_err + 0.5 * root_rot_err
+
+      root_pose_reward[i] = np.exp(-self._root_pose_err_scale * root_pose_err[i])
 
     return root_pose_reward
 
@@ -520,22 +551,26 @@ class ImitationTask(quadruped.Quadruped):
     sim_model = self.quadruped
     ref_model = self._ref_model
 
-    root_vel_ref, root_ang_vel_ref = self.pybullet_client.getBaseVelocity(ref_model)
-    root_vel_sim, root_ang_vel_sim = self.pybullet_client.getBaseVelocity(sim_model)
-    root_vel_ref = np.array(root_vel_ref)
-    root_ang_vel_ref = np.array(root_ang_vel_ref)
-    root_vel_sim = np.array(root_vel_sim)
-    root_ang_vel_sim = np.array(root_ang_vel_sim)
+    root_velocity_reward = [0 for _ in range(self.num_robot)]
+    root_velocity_err = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      root_vel_ref, root_ang_vel_ref = self.pybullet_client.getBaseVelocity(ref_model[i])
+      root_vel_sim, root_ang_vel_sim = self.pybullet_client.getBaseVelocity(sim_model[i])
+      root_vel_ref = np.array(root_vel_ref)
+      root_ang_vel_ref = np.array(root_ang_vel_ref)
+      root_vel_sim = np.array(root_vel_sim)
+      root_ang_vel_sim = np.array(root_ang_vel_sim)
 
-    root_vel_diff = root_vel_ref - root_vel_sim
-    root_vel_err = root_vel_diff.dot(root_vel_diff)
+      root_vel_diff = root_vel_ref - root_vel_sim
+      root_vel_err = root_vel_diff.dot(root_vel_diff)
 
-    root_ang_vel_diff = root_ang_vel_ref - root_ang_vel_sim
-    root_ang_vel_err = root_ang_vel_diff.dot(root_ang_vel_diff)
+      root_ang_vel_diff = root_ang_vel_ref - root_ang_vel_sim
+      root_ang_vel_err = root_ang_vel_diff.dot(root_ang_vel_diff)
 
-    root_velocity_err = root_vel_err + 0.1 * root_ang_vel_err
-    root_velocity_reward = np.exp(-self._root_velocity_err_scale *
-                                  root_velocity_err)
+      root_velocity_err[i] += root_vel_err + 0.1 * root_ang_vel_err
+
+      root_velocity_reward[i] = np.exp(-self._root_velocity_err_scale *
+                                  root_velocity_err[i])
 
     return root_velocity_reward
 
@@ -548,7 +583,7 @@ class ImitationTask(quadruped.Quadruped):
     Returns: List of reference motions loaded from the files.
     """
     num_files = len(filenames)
-    if num_files == 0:
+    if num_files != 1:
       raise ValueError("No reference motions specified.")
 
     total_time = 0.0
@@ -571,43 +606,46 @@ class ImitationTask(quadruped.Quadruped):
     Returns:
       Handle to the simulated model for the reference motion.
     """
-    ref_col = [1, 1, 1, 0.5]
+    ref_col = [1, 1, 1, 0.2]
 
     urdf_file = self.GetURDFFile()
-    ref_model = self.pybullet_client.loadURDF(urdf_file, useFixedBase=True)
 
-    self.pybullet_client.changeDynamics(ref_model, -1, linearDamping=0, angularDamping=0)
+    ref_model = [None for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      ref_model[i] = self.pybullet_client.loadURDF(urdf_file, useFixedBase=True)
 
-    self.pybullet_client.setCollisionFilterGroupMask(
-        ref_model, -1, collisionFilterGroup=0, collisionFilterMask=0)
+      self.pybullet_client.changeDynamics(ref_model[i], -1, linearDamping=0, angularDamping=0)
 
-    self.pybullet_client.changeDynamics(
-        ref_model,
-        -1,
-        activationState=self.pybullet_client.ACTIVATION_STATE_SLEEP +
-        self.pybullet_client.ACTIVATION_STATE_ENABLE_SLEEPING +
-        self.pybullet_client.ACTIVATION_STATE_DISABLE_WAKEUP)
-
-    self.pybullet_client.changeVisualShape(ref_model, -1, rgbaColor=ref_col)
-
-    num_joints = self.pybullet_client.getNumJoints(ref_model)
-    num_joints_sim = self.pybullet_client.getNumJoints(self.quadruped)
-    assert (
-        num_joints == num_joints_sim
-    ), "ref model must have the same number of joints as the simulated model."
-
-    for j in range(num_joints):
       self.pybullet_client.setCollisionFilterGroupMask(
-          ref_model, j, collisionFilterGroup=0, collisionFilterMask=0)
+          ref_model[i], -1, collisionFilterGroup=0, collisionFilterMask=0)
 
       self.pybullet_client.changeDynamics(
-          ref_model,
-          j,
+          ref_model[i],
+          -1,
           activationState=self.pybullet_client.ACTIVATION_STATE_SLEEP +
           self.pybullet_client.ACTIVATION_STATE_ENABLE_SLEEPING +
           self.pybullet_client.ACTIVATION_STATE_DISABLE_WAKEUP)
 
-      self.pybullet_client.changeVisualShape(ref_model, j, rgbaColor=ref_col)
+      self.pybullet_client.changeVisualShape(ref_model[i], -1, rgbaColor=ref_col)
+
+      num_joints = self.pybullet_client.getNumJoints(ref_model[i])
+      num_joints_sim = self.pybullet_client.getNumJoints(self.quadruped[i])
+      assert (
+          num_joints == num_joints_sim
+      ), "ref model must have the same number of joints as the simulated model."
+
+      for j in range(num_joints):
+        self.pybullet_client.setCollisionFilterGroupMask(
+            ref_model[i], j, collisionFilterGroup=0, collisionFilterMask=0)
+
+        self.pybullet_client.changeDynamics(
+            ref_model[i],
+            j,
+            activationState=self.pybullet_client.ACTIVATION_STATE_SLEEP +
+            self.pybullet_client.ACTIVATION_STATE_ENABLE_SLEEPING +
+            self.pybullet_client.ACTIVATION_STATE_DISABLE_WAKEUP)
+
+        self.pybullet_client.changeVisualShape(ref_model[i], j, rgbaColor=ref_col)
 
     return ref_model
 
@@ -620,8 +658,8 @@ class ImitationTask(quadruped.Quadruped):
     self._joint_vel_size = np.zeros(num_joints, dtype=np.int32)
 
     for j in range(num_joints):
-      j_info = self.pybullet_client.getJointInfo(self._ref_model, j)
-      j_state = self.pybullet_client.getJointStateMultiDof(self._ref_model, j)
+      j_info = self.pybullet_client.getJointInfo(self._ref_model[0], j)
+      j_state = self.pybullet_client.getJointStateMultiDof(self._ref_model[0], j)
 
       j_pose_idx = j_info[3]
       j_vel_idx = j_info[4]
@@ -647,8 +685,8 @@ class ImitationTask(quadruped.Quadruped):
       self._joint_vel_size[j] = j_vel_size
 
     motion = self.get_active_motion()
-    motion_frame_size = motion.get_frame_size()
-    motion_frame_vel_size = motion.get_frame_vel_size()
+    motion_frame_size = motion[0].get_frame_size()
+    motion_frame_vel_size = motion[0].get_frame_vel_size()
     pose_size = self.get_pose_size()
     vel_size = self.get_vel_size()
     assert (motion_frame_size == pose_size)
@@ -663,35 +701,37 @@ class ImitationTask(quadruped.Quadruped):
     the set of available motions, and then resets to a random point along the
     selected motion.
     """
-    self._active_motion_id = self._sample_ref_motion()
-    self._origin_offset_rot = np.array([0, 0, 0, 1])
-    self._origin_offset_pos.fill(0.0)
+    active_motion_id = self._sample_ref_motion()
+    for i in range(self.num_robot):
+      self._active_motion_id[i] = active_motion_id
+      self._origin_offset_rot[i] = np.array([0, 0, 0, 1])
+      self._origin_offset_pos[i].fill(0.0)
 
     self._reset_motion_time_offset()
     motion = self.get_active_motion()
     time = self._get_motion_time()
-
     ref_pose = self._calc_ref_pose(time)
-    ref_root_pos = motion.get_frame_root_pos(ref_pose)
-    ref_root_rot = motion.get_frame_root_rot(ref_pose)
     sim_root_pos = self._get_sim_base_position()
     sim_root_rot = self._get_sim_base_rotation()
 
-    # move the root to the same position and rotation as simulated robot
-    self._origin_offset_pos = sim_root_pos - ref_root_pos
-    self._origin_offset_pos[2] = 0
+    for i in range(self.num_robot):  
+      ref_root_pos = motion[i].get_frame_root_pos(ref_pose[i])
+      ref_root_rot = motion[i].get_frame_root_rot(ref_pose[i])
+      # move the root to the same position and rotation as simulated robot
+      self._origin_offset_pos[i] = sim_root_pos[i] - ref_root_pos
+      self._origin_offset_pos[i][2] = 0
 
-    ref_heading = motion_util.calc_heading(ref_root_rot)
-    sim_heading = motion_util.calc_heading(sim_root_rot)
-    delta_heading = sim_heading - ref_heading
-    self._origin_offset_rot = transformations.quaternion_about_axis(
-        delta_heading, [0, 0, 1])
+      ref_heading = motion_util.calc_heading(ref_root_rot)
+      sim_heading = motion_util.calc_heading(sim_root_rot[i])
+      delta_heading = sim_heading - ref_heading
+      self._origin_offset_rot[i] = transformations.quaternion_about_axis(
+          delta_heading, [0, 0, 1])
 
-    self._ref_pose = self._calc_ref_pose(time)
-    self._ref_vel = self._calc_ref_vel(time)
+      self._ref_pose = self._calc_ref_pose(time)
+      self._ref_vel = self._calc_ref_vel(time)
+
     self._update_ref_model()
-
-    self._prev_motion_phase = motion.calc_phase(time)
+    self._prev_motion_phase = motion[0].calc_phase(time)
     self._reset_clip_change_time()
 
     return
@@ -711,7 +751,7 @@ class ImitationTask(quadruped.Quadruped):
       self._motion_time_offset = self._sample_time_offset()
 
     motion = self.get_active_motion()
-    new_phase = motion.calc_phase(time)
+    new_phase = motion[0].calc_phase(time)
 
     if (self._enable_cycle_sync and (new_phase < self._prev_motion_phase)) \
         or change_clip:
@@ -767,29 +807,30 @@ class ImitationTask(quadruped.Quadruped):
     """
     motion = self.get_active_motion()
 
-    root_pos = motion.get_frame_root_pos(pose)
-    root_rot = motion.get_frame_root_rot(pose)
-    root_vel = motion.get_frame_root_vel(vel)
-    root_ang_vel = motion.get_frame_root_ang_vel(vel)
+    for i in range(self.num_robot):
+      root_pos = motion[i].get_frame_root_pos(pose[i])
+      root_rot = motion[i].get_frame_root_rot(pose[i])
+      root_vel = motion[i].get_frame_root_vel(vel[i])
+      root_ang_vel = motion[i].get_frame_root_ang_vel(vel[i])
 
-    self.pybullet_client.resetBasePositionAndOrientation(phys_model, root_pos, root_rot)
-    self.pybullet_client.resetBaseVelocity(phys_model, root_vel, root_ang_vel)
+      self.pybullet_client.resetBasePositionAndOrientation(phys_model[i], root_pos, root_rot)
+      self.pybullet_client.resetBaseVelocity(phys_model[i], root_vel, root_ang_vel)
 
-    num_joints = self._get_num_joints()
-    # p = []
-    for j in range(num_joints):
-      q_idx = self._get_joint_pose_idx(j)
-      q_size = self._get_joint_pose_size(j)
+      num_joints = self._get_num_joints()
+      # p = []
+      for j in range(num_joints):
+        q_idx = self._get_joint_pose_idx(j)
+        q_size = self._get_joint_pose_size(j)
 
-      dq_idx = self._get_joint_vel_idx(j)
-      dq_size = self._get_joint_vel_size(j)
+        dq_idx = self._get_joint_vel_idx(j)
+        dq_size = self._get_joint_vel_size(j)
 
-      if (q_size > 0):
-        assert (dq_size > 0)
+        if (q_size > 0):
+          assert (dq_size > 0)
 
-        j_pose = pose[q_idx:(q_idx + q_size)]
-        j_vel = vel[dq_idx:(dq_idx + dq_size)]
-        self.pybullet_client.resetJointStateMultiDof(phys_model, j, j_pose, j_vel)
+          j_pose = pose[i][q_idx:(q_idx + q_size)]
+          j_vel = vel[i][dq_idx:(dq_idx + dq_size)]
+          self.pybullet_client.resetJointStateMultiDof(phys_model[i], j, j_pose, j_vel)
     
     return
 
@@ -814,7 +855,7 @@ class ImitationTask(quadruped.Quadruped):
 
   def _get_num_joints(self):
     """Get the number of joints in the character's body."""
-    return self.pybullet_client.getNumJoints(self._ref_model)
+    return self.pybullet_client.getNumJoints(self._ref_model[0])
 
   def _get_joint_pose_idx(self, j):
     """Get the starting index of the pose data for a give joint in a pose array."""
@@ -858,22 +899,30 @@ class ImitationTask(quadruped.Quadruped):
     return vel_size
 
   def _get_sim_base_position(self):
-    pos = self.pybullet_client.getBasePositionAndOrientation(self.quadruped)[0]
+    pos = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      pos[i] = self.pybullet_client.getBasePositionAndOrientation(self.quadruped[i])[0]
     pos = np.array(pos)
     return pos
 
   def _get_sim_base_rotation(self):
-    rotation = self.pybullet_client.getBasePositionAndOrientation(self.quadruped)[1]
+    rotation = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      rotation[i] = self.pybullet_client.getBasePositionAndOrientation(self.quadruped[i])[1]
     rotation = np.array(rotation)
     return rotation
 
   def _get_ref_base_position(self):
-    pos = self.pybullet_client.getBasePositionAndOrientation(self._ref_model)[0]
+    pos = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      pos[i] = self.pybullet_client.getBasePositionAndOrientation(self._ref_model[i])[0]
     pos = np.array(pos)
     return pos
 
   def _get_ref_base_rotation(self):
-    rotation = self.pybullet_client.getBasePositionAndOrientation(self._ref_model)[1]
+    rotation = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      rotation[i] = self.pybullet_client.getBasePositionAndOrientation(self._ref_model[i])[1]
     rotation = np.array(rotation)
     return rotation
 
@@ -892,23 +941,25 @@ class ImitationTask(quadruped.Quadruped):
     motion = self.get_active_motion()
     enable_warmup_pose = self._curr_episode_warmup \
                          and time >= -self._warmup_time and time < 0.0
-    if enable_warmup_pose:
-      pose = self._calc_ref_pose_warmup()
-    else:
-      pose = motion.calc_frame(time)
+    
+    pose = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      if enable_warmup_pose:
+        pose[i] = self._calc_ref_pose_warmup()[i]
+      else:
+        pose[i] = motion[i].calc_frame(time)
 
-    if apply_origin_offset:
-      root_pos = motion.get_frame_root_pos(pose)
-      root_rot = motion.get_frame_root_rot(pose)
+      if apply_origin_offset:
+        root_pos = motion[i].get_frame_root_pos(pose[i])
+        root_rot = motion[i].get_frame_root_rot(pose[i])
+        root_rot = transformations.quaternion_multiply(self._origin_offset_rot[i],
+                                                      root_rot)
+        root_pos = pose3d.QuaternionRotatePoint(root_pos, self._origin_offset_rot[i])
+        root_pos += self._origin_offset_pos[i]
 
-      root_rot = transformations.quaternion_multiply(self._origin_offset_rot,
-                                                     root_rot)
-      root_pos = pose3d.QuaternionRotatePoint(root_pos, self._origin_offset_rot)
-      root_pos += self._origin_offset_pos
-
-      motion.set_frame_root_rot(root_rot, pose)
-      motion.set_frame_root_pos(root_pos, pose)
-
+        motion[i].set_frame_root_rot(root_rot, pose[i])
+        motion[i].set_frame_root_pos(root_pos, pose[i])
+    
     return pose
 
   def _calc_ref_vel(self, time):
@@ -923,46 +974,51 @@ class ImitationTask(quadruped.Quadruped):
     motion = self.get_active_motion()
     enable_warmup_pose = self._curr_episode_warmup \
                          and time >= -self._warmup_time and time < 0.0
-    if enable_warmup_pose:
-      vel = self._calc_ref_vel_warmup()
-    else:
-      vel = motion.calc_frame_vel(time)
+    
+    vel = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      if enable_warmup_pose:
+        vel[i] = self._calc_ref_vel_warmup()
+      else:
+        vel[i] = motion[i].calc_frame_vel(time)
 
-    root_vel = motion.get_frame_root_vel(vel)
-    root_ang_vel = motion.get_frame_root_ang_vel(vel)
+      root_vel = motion[i].get_frame_root_vel(vel[i])
+      root_ang_vel = motion[i].get_frame_root_ang_vel(vel[i])
 
-    root_vel = pose3d.QuaternionRotatePoint(root_vel, self._origin_offset_rot)
-    root_ang_vel = pose3d.QuaternionRotatePoint(root_ang_vel,
-                                                self._origin_offset_rot)
+      root_vel = pose3d.QuaternionRotatePoint(root_vel, self._origin_offset_rot[i])
+      root_ang_vel = pose3d.QuaternionRotatePoint(root_ang_vel,
+                                                  self._origin_offset_rot[i])
 
-    motion.set_frame_root_vel(root_vel, vel)
-    motion.set_frame_root_ang_vel(root_ang_vel, vel)
+      motion[i].set_frame_root_vel(root_vel, vel[i])
+      motion[i].set_frame_root_ang_vel(root_ang_vel, vel[i])
 
     return vel
 
   def _calc_ref_pose_warmup(self):
     """Calculate default reference  pose during warmup period."""
     motion = self.get_active_motion()
-    pose0 = motion.calc_frame(0)
-    warmup_pose = self._default_pose.copy()
 
-    pose_root_rot = motion.get_frame_root_rot(pose0)
-    default_root_rot = motion.get_frame_root_rot(warmup_pose)
-    default_root_pos = motion.get_frame_root_pos(warmup_pose)
+    warmup_pose = copy.deepcopy(self._default_pose)
+    for i in range(self.num_robot):
+      pose0 = motion[i].calc_frame(0)
 
-    pose_heading = motion_util.calc_heading(pose_root_rot)
-    default_heading = motion_util.calc_heading(default_root_rot)
-    delta_heading = pose_heading - default_heading
-    delta_heading_rot = transformations.quaternion_about_axis(
-        delta_heading, [0, 0, 1])
+      pose_root_rot = motion[i].get_frame_root_rot(pose0)
+      default_root_rot = motion[i].get_frame_root_rot(warmup_pose[i])
+      default_root_pos = motion[i].get_frame_root_pos(warmup_pose[i])
 
-    default_root_pos = pose3d.QuaternionRotatePoint(default_root_pos,
-                                                    delta_heading_rot)
-    default_root_rot = transformations.quaternion_multiply(
-        delta_heading_rot, default_root_rot)
+      pose_heading = motion_util.calc_heading(pose_root_rot)
+      default_heading = motion_util.calc_heading(default_root_rot)
+      delta_heading = pose_heading - default_heading
+      delta_heading_rot = transformations.quaternion_about_axis(
+          delta_heading, [0, 0, 1])
 
-    motion.set_frame_root_pos(default_root_pos, warmup_pose)
-    motion.set_frame_root_rot(default_root_rot, warmup_pose)
+      default_root_pos = pose3d.QuaternionRotatePoint(default_root_pos,
+                                                      delta_heading_rot)
+      default_root_rot = transformations.quaternion_multiply(
+          delta_heading_rot, default_root_rot)
+
+      motion[i].set_frame_root_pos(default_root_pos, warmup_pose[i])
+      motion[i].set_frame_root_rot(default_root_rot, warmup_pose[i])
 
     return warmup_pose
 
@@ -993,7 +1049,7 @@ class ImitationTask(quadruped.Quadruped):
     ref_pose = self._calc_ref_pose(time, apply_origin_offset=False)
 
     if sync_root_rotation:
-      ref_rot = motion.get_frame_root_rot(ref_pose)
+      ref_rot = [motion[i].get_frame_root_rot(ref_pose[i]) for i in range(self.num_robot)]
       sim_rot = self._get_sim_base_rotation()
       ref_heading = self._calc_heading(ref_rot)
       sim_heading = self._calc_heading(sim_rot)
@@ -1003,11 +1059,12 @@ class ImitationTask(quadruped.Quadruped):
           heading_diff, [0, 0, 1])
 
     if sync_root_position:
-      ref_pos = motion.get_frame_root_pos(ref_pose)
-      ref_pos = pose3d.QuaternionRotatePoint(ref_pos, self._origin_offset_rot)
+      ref_pos = [motion[i].get_frame_root_pos(ref_pose[i]) for i in range(self.num_robot)]
+      ref_pos = [pose3d.QuaternionRotatePoint(ref_pos[i], self._origin_offset_rot[i]) for i in range(self.num_robot)]
       sim_pos = self._get_sim_base_position()
-      self._origin_offset_pos = sim_pos - ref_pos
-      self._origin_offset_pos[2] = 0  # only sync along horizontal plane
+      for i in range(self.num_robot):
+        self._origin_offset_pos[i] = sim_pos[i] - ref_pos[i]
+        self._origin_offset_pos[i][2] = 0  # only sync along horizontal plane
 
     return
 
@@ -1026,36 +1083,39 @@ class ImitationTask(quadruped.Quadruped):
 
   def _build_sim_pose(self, phys_model):
     """Build  pose vector from simulated model."""
-    pose = np.zeros(self.get_pose_size())
-    root_pos, root_rot = self.pybullet_client.getBasePositionAndOrientation(phys_model)
-    root_pos = np.array(root_pos)
-    root_rot = np.array(root_rot)
-
-    joint_pose = []
-
-    num_joints = self._get_num_joints()
-    for j in range(num_joints):
-      j_state_sim = self.pybullet_client.getJointStateMultiDof(phys_model, j)
-      j_pose_sim = np.array(j_state_sim[0])
-
-      j_size_sim = len(j_pose_sim)
-
-      if j_size_sim > 0:
-        joint_pose.append(j_pose_sim)
-
-    joint_pose = np.concatenate(joint_pose)
-
     motion = self.get_active_motion()
-    motion.set_frame_root_pos(root_pos, pose)
-    motion.set_frame_root_rot(root_rot, pose)
-    motion.set_frame_joints(joint_pose, pose)
+    pose = [np.zeros(self.get_pose_size()) for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      root_pos, root_rot = self.pybullet_client.getBasePositionAndOrientation(phys_model[i])
+      root_pos = np.array(root_pos)
+      root_rot = np.array(root_rot)
+
+      joint_pose = []
+
+      num_joints = self._get_num_joints()
+      for j in range(num_joints):
+        j_state_sim = self.pybullet_client.getJointStateMultiDof(phys_model[i], j)
+        j_pose_sim = np.array(j_state_sim[0])
+
+        j_size_sim = len(j_pose_sim)
+
+        if j_size_sim > 0:
+          joint_pose.append(j_pose_sim)
+
+      joint_pose = np.concatenate(joint_pose)
+
+      motion[i].set_frame_root_pos(root_pos, pose)
+      motion[i].set_frame_root_rot(root_rot, pose)
+      motion[i].set_frame_joints(joint_pose, pose)
 
     return pose
 
   def _get_default_root_rotation(self):
     """Get default root rotation."""
     motion = self.get_active_motion()
-    root_rot = motion.get_frame_root_rot(self._default_pose)
+    root_rot = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      root_rot[i] = motion[i].get_frame_root_rot(self._default_pose[i])
     return root_rot
 
   def _sample_ref_motion(self):
@@ -1101,7 +1161,7 @@ class ImitationTask(quadruped.Quadruped):
       motion (in seconds).
     """
     motion = self.get_active_motion()
-    dur = motion.get_duration()
+    dur = motion[0].get_duration()
     offset = self._rand_uniform(0, dur)
 
     return offset
@@ -1144,11 +1204,13 @@ class ImitationTask(quadruped.Quadruped):
       the default orientation.
 
     """
-    inv_default_rotation = transformations.quaternion_conjugate(
-        self._get_default_root_rotation())
-    rel_rotation = transformations.quaternion_multiply(root_rotation,
-                                                       inv_default_rotation)
-    heading = motion_util.calc_heading(rel_rotation)
+    heading = []
+    for i in range(self.num_robot):
+      inv_default_rotation = transformations.quaternion_conjugate(
+          self._get_default_root_rotation()[i])
+      rel_rotation = transformations.quaternion_multiply(root_rotation[i],
+                                                        inv_default_rotation)
+      heading.append(motion_util.calc_heading(rel_rotation))
     return heading
 
   def _calc_heading_rot(self, root_rotation):
@@ -1167,11 +1229,13 @@ class ImitationTask(quadruped.Quadruped):
       the default orientation.
 
     """
-    inv_default_rotation = transformations.quaternion_conjugate(
-        self._get_default_root_rotation())
-    rel_rotation = transformations.quaternion_multiply(root_rotation,
-                                                       inv_default_rotation)
-    heading_rot = motion_util.calc_heading_rot(rel_rotation)
+    heading_rot = []
+    for i in range(self.num_robot):
+      inv_default_rotation = transformations.quaternion_conjugate(
+          self._get_default_root_rotation()[i])
+      rel_rotation = transformations.quaternion_multiply(root_rotation[i],
+                                                        inv_default_rotation)
+      heading_rot.append(motion_util.calc_heading_rot(rel_rotation))
     return heading_rot
 
   def _enable_warmup(self):
@@ -1195,35 +1259,36 @@ class ImitationTask(quadruped.Quadruped):
     perturb_vel = vel.copy()
 
     motion = self.get_active_motion()
-    root_pos = motion.get_frame_root_pos(perturb_pose)
-    root_rot = motion.get_frame_root_rot(perturb_pose)
-    joint_pose = motion.get_frame_joints(perturb_pose)
-    root_vel = motion.get_frame_root_vel(perturb_vel)
-    root_ang_vel = motion.get_frame_root_ang_vel(perturb_vel)
-    joint_vel = motion.get_frame_joints_vel(perturb_vel)
+    for i in range(self.num_robot):
+      root_pos = motion[i].get_frame_root_pos(perturb_pose[i])
+      root_rot = motion[i].get_frame_root_rot(perturb_pose[i])
+      joint_pose = motion[i].get_frame_joints(perturb_pose[i])
+      root_vel = motion[i].get_frame_root_vel(perturb_vel[i])
+      root_ang_vel = motion[i].get_frame_root_ang_vel(perturb_vel[i])
+      joint_vel = motion[i].get_frame_joints_vel(perturb_vel[i])
 
-    root_pos[0] += self._randn(0, root_pos_std)
-    root_pos[1] += self._randn(0, root_pos_std)
+      root_pos[i][0] += self._randn(0, root_pos_std)
+      root_pos[i][1] += self._randn(0, root_pos_std)
 
-    rand_axis = self._rand_uniform(-1, 1, size=[3])
-    rand_axis /= np.linalg.norm(rand_axis)
-    rand_theta = self._randn(0, root_rot_std)
-    rand_rot = transformations.quaternion_about_axis(rand_theta, rand_axis)
-    root_rot = transformations.quaternion_multiply(rand_rot, root_rot)
+      rand_axis = self._rand_uniform(-1, 1, size=[3])
+      rand_axis /= np.linalg.norm(rand_axis)
+      rand_theta = self._randn(0, root_rot_std)
+      rand_rot = transformations.quaternion_about_axis(rand_theta, rand_axis)
+      root_rot = transformations.quaternion_multiply(rand_rot, root_rot)
 
-    joint_pose += self._randn(0, joint_pose_std, size=joint_pose.shape)
+      joint_pose += self._randn(0, joint_pose_std, size=joint_pose.shape)
 
-    root_vel[0] += self._randn(0, root_vel_std)
-    root_vel[1] += self._randn(0, root_vel_std)
-    root_ang_vel += self._randn(0, root_ang_vel_std, size=root_ang_vel.shape)
-    joint_vel += self._randn(0, joint_vel_std, size=joint_vel.shape)
+      root_vel[0] += self._randn(0, root_vel_std)
+      root_vel[1] += self._randn(0, root_vel_std)
+      root_ang_vel += self._randn(0, root_ang_vel_std, size=root_ang_vel.shape)
+      joint_vel += self._randn(0, joint_vel_std, size=joint_vel.shape)
 
-    motion.set_frame_root_pos(root_pos, perturb_pose)
-    motion.set_frame_root_rot(root_rot, perturb_pose)
-    motion.set_frame_joints(joint_pose, perturb_pose)
-    motion.set_frame_root_vel(root_vel, perturb_vel)
-    motion.set_frame_root_ang_vel(root_ang_vel, perturb_vel)
-    motion.set_frame_joints_vel(joint_vel, perturb_vel)
+      motion[i].set_frame_root_pos(root_pos[i], perturb_pose[i])
+      motion[i].set_frame_root_rot(root_rot[i], perturb_pose[i])
+      motion[i].set_frame_joints(joint_pose, perturb_pose[i])
+      motion[i].set_frame_root_vel(root_vel, perturb_vel[i])
+      motion[i].set_frame_root_ang_vel(root_ang_vel, perturb_vel[i])
+      motion[i].set_frame_joints_vel(joint_vel, perturb_vel[i])
 
     return perturb_pose, perturb_vel
 
@@ -1232,6 +1297,6 @@ class ImitationTask(quadruped.Quadruped):
     root_rot = self.GetDefaultInitOrientation()
     joint_pose = self.GetDefaultInitJointPose()
 
-    pose = np.concatenate([root_pos, root_rot, joint_pose])
+    pose = [np.concatenate([root_pos[i], root_rot[i], joint_pose[i]]) for i in range(self.num_robot)]
 
     return pose

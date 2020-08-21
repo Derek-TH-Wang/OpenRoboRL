@@ -72,9 +72,10 @@ class ImitationWrapperEnv(object):
     observation = self._modify_observation(original_observation)
     terminated = done
 
-    done |= (self.env_step_counter >= self._max_episode_steps)
+    for i in range(len(done)):
+      done[i] |= (self.env_step_counter >= self._max_episode_steps)
 
-    if not done:
+    if not all(done):
       self._total_step_count += 1
 
     info = {"terminated": terminated}

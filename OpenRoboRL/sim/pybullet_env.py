@@ -117,7 +117,7 @@ class PybulletEnv(gym.Env):
     def reset(self,
               initial_motor_angles=None,
               reset_duration=0.0,
-              reset_visualization_camera=True):
+              reset_visualization_camera=False):
         """Resets the robot's position in the world or rebuild the sim world.
 
         The simulation world will be rebuilt if self._hard_reset is True.

@@ -50,18 +50,19 @@ def set_rand_seed(seed=None):
     return
 
 
-def build_env(robot, motion_files, num_parallel_envs, mode, enable_rendering):
+def build_env(robot, num_robot, motion_files, num_parallel_envs, mode, enable_rendering):
     assert len(motion_files) > 0
 
     curriculum_episode_length_start = 20
     curriculum_episode_length_end = 600
 
     env = imitation_task.ImitationTask(robot,
+                                       num_robot=num_robot,
                                        ref_motion_filenames=motion_files,
                                        enable_cycle_sync=True,
                                        tar_frame_steps=[1, 2, 10, 30],
                                        ref_state_init_prob=0.9,
-                                       warmup_time=0.25,)
+                                       warmup_time=0.25)
 
     env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(
         env)
@@ -177,10 +178,12 @@ def main():
                                 type=str, default="laikago")
         arg_parser.add_argument("--motion_file", dest="motion_file", type=str,
                                 default="OpenRoboRL/learning/data/motions/dog_pace.txt")
-        arg_parser.add_argument("--model_file", dest="model_file", type=str,
-                                default="OpenRoboRL/learning/data/policies/dog_pace.zip")
+        # arg_parser.add_argument("--model_file", dest="model_file", type=str,
+        #                         default="OpenRoboRL/learning/data/policies/dog_pace.zip")
+        arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
+    arg_parser.add_argument("--num_robot", dest="num_robot", type=int, default=2)
     arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
-    arg_parser.add_argument("--mode", dest="mode", type=str, default="test")
+    arg_parser.add_argument("--mode", dest="mode", type=str, default="train")
     arg_parser.add_argument("--visualize", dest="visualize",
                             action="store_true", default=True)
     arg_parser.add_argument(
@@ -200,6 +203,7 @@ def main():
 
     # enable_env_rand = ENABLE_ENV_RANDOMIZER and (args.mode != "test") derektodo
     env = build_env(robot=args.robot,
+                    num_robot=args.num_robot,
                     motion_files=[args.motion_file],
                     num_parallel_envs=num_procs,
                     mode=args.mode,
