@@ -143,10 +143,10 @@ def test(model, env, num_procs, num_episodes=None):
     while episode_count < num_local_episodes:
         a, _ = model.predict(o, deterministic=True)
         o, r, done, info = env.step(a)
-        curr_return += r
+        curr_return += r[0]
         # print(time.time()-s)
         # s = time.time()
-        if done:
+        if done[0]:
             o = env.reset()
             sum_return += curr_return
             episode_count += 1
@@ -180,8 +180,11 @@ def main():
                                 default="OpenRoboRL/learning/data/motions/dog_pace.txt")
         # arg_parser.add_argument("--model_file", dest="model_file", type=str,
         #                         default="OpenRoboRL/learning/data/policies/dog_pace.zip")
+        # arg_parser.add_argument("--model_file", dest="model_file", type=str,
+        #                         default="model.zip")
         arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
-    arg_parser.add_argument("--num_robot", dest="num_robot", type=int, default=2)
+    arg_parser.add_argument("--num_robot", dest="num_robot", type=int, default=1)
+
     arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
     arg_parser.add_argument("--mode", dest="mode", type=str, default="train")
     arg_parser.add_argument("--visualize", dest="visualize",

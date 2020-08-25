@@ -130,9 +130,9 @@ class ImitationTask(quadruped.Quadruped):
     self._clip_change_time = clip_time_min
 
     self._enable_cycle_sync = enable_cycle_sync
-    self._active_motion_id = [-1 for _ in range(num_robot)]
-    self._motion_time_offset = 0.0
-    self._episode_start_time_offset = 0.0
+    self._active_motion_id = -1
+    self._motion_time_offset = [0.0 for _ in range(num_robot)]
+    self._episode_start_time_offset = [0.0 for _ in range(num_robot)]
     self._ref_model = None
     self._ref_pose = None
     self._ref_vel = None
@@ -140,7 +140,7 @@ class ImitationTask(quadruped.Quadruped):
     self._perturb_init_state_prob = perturb_init_state_prob
     self._tar_obs_noise = tar_obs_noise
 
-    self._prev_motion_phase = 0
+    self._prev_motion_phase = [0 for _ in range(num_robot)]
     self._origin_offset_rot = [np.array([0, 0, 0, 1]) for _ in range(num_robot)]
     self._origin_offset_pos = [np.zeros(motion_data.MotionData.POS_SIZE) for _ in range(num_robot)]
 
@@ -160,6 +160,8 @@ class ImitationTask(quadruped.Quadruped):
 
     super(ImitationTask, self).__init__(robot, num_robot=num_robot)
 
+    # self.reset_task()
+
     return
 
   def compute_reward(self):
@@ -168,11 +170,11 @@ class ImitationTask(quadruped.Quadruped):
   def reset_task(self):
     """Resets the internal state of the task."""
     self._last_base_position = self._get_sim_base_position()
-    self._episode_start_time_offset = 0.0
+    self._episode_start_time_offset = [0.0 for _ in range(self.num_robot)]
 
     if (self._ref_motions is None or self.hard_reset):
       self._ref_motions = [self._load_ref_motions(self._ref_motion_filenames) for _ in range(self.num_robot)]
-      self._active_motion_id = [self._sample_ref_motion() for _ in range(self.num_robot)]
+      self._active_motion_id = self._sample_ref_motion()
 
     if (self._ref_model is None or self.hard_reset):
       self._ref_model = self._build_ref_model()
@@ -287,7 +289,7 @@ class ImitationTask(quadruped.Quadruped):
     time = self._get_motion_time()
     motion = self.get_active_motion()
     for i in range(self.num_robot):
-      is_over[i] = motion[i].is_over(time)
+      is_over[i] = motion[i].is_over(time[i])
     return all(is_over)
 
   def get_active_motion(self):
@@ -298,7 +300,7 @@ class ImitationTask(quadruped.Quadruped):
     """
     motion = []
     for i in range(self.num_robot):
-      motion.append(self._ref_motions[i][self._active_motion_id[i]])
+      motion.append(self._ref_motions[i][self._active_motion_id])
     return motion
 
   def build_target_obs(self):
@@ -326,10 +328,12 @@ class ImitationTask(quadruped.Quadruped):
         heading += self._randn(0, self._tar_obs_noise[0])
       inv_heading_rot = transformations.quaternion_about_axis(-heading, [0, 0, 1])
 
-      for step in self._tar_frame_steps:
-        tar_time = time0 + step * dt
-        tar_pose = self._calc_ref_pose(tar_time)
+    tar_time = [0 for _ in range(self.num_robot)]
+    for step in self._tar_frame_steps:
+      tar_time = [t + step * dt  for t in time0]
+      tar_pose = self._calc_ref_pose(tar_time)
 
+      for i in range(self.num_robot):
         tar_root_pos = motion[i].get_frame_root_pos(tar_pose[i])
         tar_root_rot = motion[i].get_frame_root_rot(tar_pose[i])
 
@@ -345,7 +349,7 @@ class ImitationTask(quadruped.Quadruped):
 
         tar_poses[i].append(tar_pose[i])
 
-      tar_obs[i] = np.concatenate(tar_poses[i], axis=-1)
+    tar_obs = [np.concatenate(tar_poses[i], axis=-1) for i in range(self.num_robot)]
 
     return tar_obs
 
@@ -702,8 +706,8 @@ class ImitationTask(quadruped.Quadruped):
     selected motion.
     """
     active_motion_id = self._sample_ref_motion()
+    self._active_motion_id = active_motion_id
     for i in range(self.num_robot):
-      self._active_motion_id[i] = active_motion_id
       self._origin_offset_rot[i] = np.array([0, 0, 0, 1])
       self._origin_offset_pos[i].fill(0.0)
 
@@ -731,7 +735,8 @@ class ImitationTask(quadruped.Quadruped):
       self._ref_vel = self._calc_ref_vel(time)
 
     self._update_ref_model()
-    self._prev_motion_phase = motion[0].calc_phase(time)
+    for i in range(self.num_robot):
+      self._prev_motion_phase[i] = motion[i].calc_phase(time[i])
     self._reset_clip_change_time()
 
     return
@@ -744,19 +749,22 @@ class ImitationTask(quadruped.Quadruped):
     time = self._get_motion_time()
     change_clip = self._check_change_clip()
 
-    if change_clip:
-      new_motion_id = self._sample_ref_motion()
-      self._change_ref_motion(new_motion_id)
-      self._reset_clip_change_time()
-      self._motion_time_offset = self._sample_time_offset()
-
     motion = self.get_active_motion()
-    new_phase = motion[0].calc_phase(time)
+    new_phase = [0 for _ in range(self.num_robot)]
+    for i in range(self.num_robot):
+      if change_clip[i]:
+        new_motion_id = self._sample_ref_motion()
+        self._change_ref_motion(new_motion_id)
+        self._reset_clip_change_time()
+        self._motion_time_offset = self._sample_time_offset()
 
-    if (self._enable_cycle_sync and (new_phase < self._prev_motion_phase)) \
-        or change_clip:
-      self._sync_ref_origin(
-          sync_root_position=True, sync_root_rotation=change_clip)
+      
+        new_phase[i] = motion[i].calc_phase(time[i])
+
+        if (self._enable_cycle_sync and (new_phase[i] < self._prev_motion_phase[i])) \
+            or change_clip[i]:
+          self._sync_ref_origin(
+              sync_root_position=True, sync_root_rotation=change_clip[i])
 
     self._update_ref_state()
     self._update_ref_model()
@@ -836,20 +844,21 @@ class ImitationTask(quadruped.Quadruped):
 
   def _get_motion_time(self):
     """Get the time since the start of the reference motion."""
-    time = self.GetTimeSinceReset()
+    time = [self.GetTimeSinceReset() for _ in range(self.num_robot)]
 
     # Needed to ensure that during deployment, the first timestep will be at
     # time = 0
-    if self.env_step_counter == 0:
-      self._episode_start_time_offset = -time
+    for i in range(self.num_robot):
+      if self.env_step_counter == 0:
+        self._episode_start_time_offset[i] = -time[i]
 
-    time += self._motion_time_offset
-    time += self._episode_start_time_offset
+      time[i] += self._motion_time_offset[i]
+      time[i] += self._episode_start_time_offset[i]
 
-    if self._curr_episode_warmup:
-      # if warmup is enabled, then apply a time offset to give the robot more
-      # time to move to the reference motion
-      time -= self._warmup_time
+      if self._curr_episode_warmup:
+        # if warmup is enabled, then apply a time offset to give the robot more
+        # time to move to the reference motion
+        time[i] -= self._warmup_time
 
     return time
 
@@ -939,15 +948,16 @@ class ImitationTask(quadruped.Quadruped):
     """
 
     motion = self.get_active_motion()
-    enable_warmup_pose = self._curr_episode_warmup \
-                         and time >= -self._warmup_time and time < 0.0
-    
     pose = [0 for _ in range(self.num_robot)]
+
     for i in range(self.num_robot):
+      enable_warmup_pose = self._curr_episode_warmup \
+                         and time[i] >= -self._warmup_time and time[i] < 0.0
+    
       if enable_warmup_pose:
         pose[i] = self._calc_ref_pose_warmup()[i]
       else:
-        pose[i] = motion[i].calc_frame(time)
+        pose[i] = motion[i].calc_frame(time[i])
 
       if apply_origin_offset:
         root_pos = motion[i].get_frame_root_pos(pose[i])
@@ -972,15 +982,16 @@ class ImitationTask(quadruped.Quadruped):
       An array containing the reference velocity at the given point in time.
     """
     motion = self.get_active_motion()
-    enable_warmup_pose = self._curr_episode_warmup \
-                         and time >= -self._warmup_time and time < 0.0
-    
     vel = [0 for _ in range(self.num_robot)]
+
     for i in range(self.num_robot):
+      enable_warmup_pose = self._curr_episode_warmup \
+                         and time[i] >= -self._warmup_time and time[i] < 0.0
+    
       if enable_warmup_pose:
         vel[i] = self._calc_ref_vel_warmup()
       else:
-        vel[i] = motion[i].calc_frame_vel(time)
+        vel[i] = motion[i].calc_frame_vel(time[i])
 
       root_vel = motion[i].get_frame_root_vel(vel[i])
       root_ang_vel = motion[i].get_frame_root_ang_vel(vel[i])
@@ -1053,10 +1064,10 @@ class ImitationTask(quadruped.Quadruped):
       sim_rot = self._get_sim_base_rotation()
       ref_heading = self._calc_heading(ref_rot)
       sim_heading = self._calc_heading(sim_rot)
-      heading_diff = sim_heading - ref_heading
+      heading_diff = [sim_heading[i] - ref_heading[i] for i in range(self.num_robot)]
 
-      self._origin_offset_rot = transformations.quaternion_about_axis(
-          heading_diff, [0, 0, 1])
+      self._origin_offset_rot = [transformations.quaternion_about_axis(
+          heading_diff[i], [0, 0, 1]) for i in range(self.num_robot)]
 
     if sync_root_position:
       ref_pos = [motion[i].get_frame_root_pos(ref_pose[i]) for i in range(self.num_robot)]
@@ -1141,14 +1152,14 @@ class ImitationTask(quadruped.Quadruped):
     """Check if the current motion clip should be changed."""
     time = self._get_motion_time()
     num_motions = self.get_num_motions()
-    change = (time >= self._clip_change_time) and (num_motions > 1)
+    change = [(time[i] >= self._clip_change_time) and (num_motions > 1) for i in range(self.num_robot)]
     return change
 
   def _reset_motion_time_offset(self):
     if not self._enable_rand_init_time:
-      self._motion_time_offset = 0.0
+      self._motion_time_offset = [0.0 for _ in range(self.num_robot)]
     elif self._curr_episode_warmup:
-      self._motion_time_offset = self._rand_uniform(0, self._warmup_time)
+      self._motion_time_offset = [self._rand_uniform(0, self._warmup_time) for _ in range(self.num_robot)]
     else:
       self._motion_time_offset = self._sample_time_offset()
     return
@@ -1161,8 +1172,8 @@ class ImitationTask(quadruped.Quadruped):
       motion (in seconds).
     """
     motion = self.get_active_motion()
-    dur = motion[0].get_duration()
-    offset = self._rand_uniform(0, dur)
+    dur = [motion[i].get_duration() for i in range(self.num_robot)]
+    offset = [self._rand_uniform(0, dur[i]) for i in range(self.num_robot)]
 
     return offset
 
