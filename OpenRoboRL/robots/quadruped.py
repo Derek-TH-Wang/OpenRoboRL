@@ -29,7 +29,6 @@ import numpy as np
 from gym.utils import seeding
 from robots import robot_motor
 from robots import action_filter
-from sim import pybullet_env
 from utils import transformations
 import pybullet
 import pybullet_utils.bullet_client as bullet_client
