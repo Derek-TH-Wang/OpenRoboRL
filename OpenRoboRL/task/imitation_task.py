@@ -537,8 +537,8 @@ class ImitationTask(quadruped.Quadruped):
 
       root_rot_diff = transformations.quaternion_multiply(
           root_rot_ref[i], transformations.quaternion_conjugate(root_rot_sim[i]))
-      # if root_rot_diff[0] == np.nan:
-      #   print(11)
+      if root_rot_diff[0] == np.nan:
+        print(11)
       _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(root_rot_diff)
       root_rot_diff_angle = motion_util.normalize_rotation_angle(
           root_rot_diff_angle)
@@ -758,13 +758,12 @@ class ImitationTask(quadruped.Quadruped):
         self._reset_clip_change_time()
         self._motion_time_offset = self._sample_time_offset()
 
-      
-        new_phase[i] = motion[i].calc_phase(time[i])
+      new_phase[i] = motion[i].calc_phase(time[i])
 
-        if (self._enable_cycle_sync and (new_phase[i] < self._prev_motion_phase[i])) \
-            or change_clip[i]:
-          self._sync_ref_origin(
-              sync_root_position=True, sync_root_rotation=change_clip[i])
+      if (self._enable_cycle_sync and (new_phase[i] < self._prev_motion_phase[i])) \
+          or change_clip[i]:
+        self._sync_ref_origin(
+            sync_root_position=True, sync_root_rotation=change_clip[i])
 
     self._update_ref_state()
     self._update_ref_model()
