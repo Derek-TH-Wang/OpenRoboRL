@@ -539,6 +539,9 @@ class ImitationTask(quadruped.Quadruped):
           root_rot_ref[i], transformations.quaternion_conjugate(root_rot_sim[i]))
       if root_rot_diff[0] == np.nan:
         print(11)
+        print(root_rot_diff)
+        print(root_rot_ref)
+        print(root_rot_sim)
       _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(root_rot_diff)
       root_rot_diff_angle = motion_util.normalize_rotation_angle(
           root_rot_diff_angle)
@@ -731,8 +734,8 @@ class ImitationTask(quadruped.Quadruped):
       self._origin_offset_rot[i] = transformations.quaternion_about_axis(
           delta_heading, [0, 0, 1])
 
-      self._ref_pose = self._calc_ref_pose(time)
-      self._ref_vel = self._calc_ref_vel(time)
+    self._ref_pose = self._calc_ref_pose(time)
+    self._ref_vel = self._calc_ref_vel(time)
 
     self._update_ref_model()
     for i in range(self.num_robot):
