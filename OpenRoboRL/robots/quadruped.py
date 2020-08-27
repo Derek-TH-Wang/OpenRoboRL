@@ -236,8 +236,6 @@ class Quadruped(gym.Env):
         action += self._init_motor_angle
         self._last_action = action
 
-        self.imitation_step()
-
         if self._enable_action_filter:
             action = self._FilterAction(action)
 
@@ -246,14 +244,9 @@ class Quadruped(gym.Env):
             self._StepInternal(proc_action)
             self._step_counter += 1
 
-        for s in self._sensors:
-            s.on_step()
-
-        observations = self._get_observation()
-
         self._filter_action = action
 
-        return observations
+        return
 
     def ProcessAction(self, action, substep_count):
         """If enabled, interpolates between the current and previous actions.
@@ -1394,9 +1387,18 @@ class Quadruped(gym.Env):
         for env_randomizer in self._env_randomizers:
             env_randomizer.randomize_step(self)
 
-        obs = self.set_action(action)
+        self.set_action(action)
+
+        for s in self._sensors:
+            s.on_step()
+
+        self.imitation_step()
+
         reward = self.compute_reward()
+        
         done = self.is_done()
+        
+        obs = self._get_observation()
 
         self._env_step_counter += 1
 
