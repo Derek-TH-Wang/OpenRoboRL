@@ -177,10 +177,11 @@ def main():
                                 type=str, default="laikago")
         arg_parser.add_argument("--motion_file", dest="motion_file", type=str,
                                 default="OpenRoboRL/learning/data/motions/dog_pace.txt")
-        arg_parser.add_argument("--model_file", dest="model_file", type=str,
-                                default="OpenRoboRL/learning/data/policies/dog_pace.zip")
+        # arg_parser.add_argument("--model_file", dest="model_file", type=str,
+        #                         default="OpenRoboRL/learning/data/policies/dog_pace.zip")
+        arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
     arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
-    arg_parser.add_argument("--mode", dest="mode", type=str, default="test")
+    arg_parser.add_argument("--mode", dest="mode", type=str, default="train")
     arg_parser.add_argument("--visualize", dest="visualize",
                             action="store_true", default=True)
     arg_parser.add_argument(
