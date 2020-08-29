@@ -170,15 +170,15 @@ class ImitationTask(object):
     self._last_base_position = self._get_sim_base_position()
     self._episode_start_time_offset = 0.0
 
-    if (self._ref_motions is None or self._env.hard_reset):
+    if self._ref_motions is None:
       self._ref_motions = self._load_ref_motions(self._ref_motion_filenames)
       self._active_motion_id = self._sample_ref_motion()
 
-    if (self._ref_model is None or self._env.hard_reset):
+    if self._ref_model is None:
       self._ref_model = self._build_ref_model()
       self._build_joint_data()
 
-    if self._default_pose is None or self._env.hard_reset:
+    if self._default_pose is None:
       self._default_pose = self._record_default_pose()
 
     rand_val = self._rand_uniform(0.0, 1.0)
