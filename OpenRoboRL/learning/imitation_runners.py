@@ -44,11 +44,17 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
     """
     # Check when using GAIL
     assert not (gail and reward_giver is None), "You must pass a reward giver when using GAIL"
+    num_robot = env.num_robot
 
     # Initialize state variables
     step = 0
-    action = env.action_space.sample()  # not used, just so we have the datatype
     observation = env.reset()
+    action = [env.action_space.sample() for _ in range(num_robot)] # not used, just so we have the datatype
+    vpred = [0 for _ in range(env.num_robot)]
+    info = [0 for _ in range(env.num_robot)]
+    reward = [0 for _ in range(env.num_robot)]
+    done = [False for _ in range(env.num_robot)]
+    state = [policy.initial_state for _ in range(env.num_robot)]
 
     cur_ep_ret = 0  # return in current episode
     current_it_len = 0  # len of current iteration
@@ -59,33 +65,30 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
     ep_lens = []  # Episode lengths
 
     # Initialize history arrays
-    observations = np.array([observation for _ in range(horizon)])
+    observations = np.array([observation[0] for _ in range(horizon)])
     true_rewards = np.zeros(horizon, 'float32')
     rewards = np.zeros(horizon, 'float32')
     vpreds = np.zeros(horizon, 'float32')
     nextvpreds = np.zeros(horizon, 'float32')
     episode_starts = np.zeros(horizon, 'bool')
     dones = np.zeros(horizon, 'bool')
-    actions = np.array([action for _ in range(horizon)])
-    states = policy.initial_state
-    episode_start = True  # marks if we're on first timestep of an episode
-    done = False
+    actions = np.array([action[0] for _ in range(horizon)])
+    episode_start = [True for _ in range(env.num_robot)]  # marks if we're on first timestep of an episode
 
     callback.on_rollout_start()
 
     while True:
-        action, vpred, states, info = policy.step(observation.reshape(-1, *observation.shape), states, done)
+        for j in range(num_robot):
+            observation[j] = observation[j].reshape(-1, *observation[j].shape)
+            act, vpred[j], state[j], info[j] = policy.step(observation[j], state[j], done[j])
+            action[j] = act
         # Slight weirdness here because we need value function at time T
         # before returning segment [0, T-1] so we get the correct
         # terminal value
         if step > 0 and step % horizon == 0:
-            terminated = ("terminated" not in info) or info["terminated"]
-            if terminated:
-                last_vpred = 0.0
-            else:
-                last_vpred = policy.value(observation.reshape(-1, *observation.shape), states, done)
-                last_vpred = last_vpred[0]
-            nextvpreds[i] = last_vpred
+            last_vpred = 0.0
+            for j in range(env.num_robot):
+                nextvpreds[i+j] = last_vpred
 
             callback.on_rollout_end()
             yield {
@@ -103,7 +106,8 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
                     "total_timestep": current_it_len,
                     'continue_training': True
             }
-            _, vpred, _, info = policy.step(observation.reshape(-1, *observation.shape))
+            for j in range(num_robot):
+                _, vpred[j], _, info[j] = policy.step(observation[j])
             # Be careful!!! if you change the downstream algorithm to aggregate
             # several of these batches, then be sure to do a deepcopy
             ep_rets = []
@@ -114,25 +118,29 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
             callback.on_rollout_start()
 
         i = step % horizon
-        observations[i] = observation
-        vpreds[i] = vpred[0]
-        actions[i] = action[0]
-        episode_starts[i] = episode_start
+        for j in range(env.num_robot):
+            observations[i+j] = observation[j]
+            vpreds[i+j] = vpred[j][0]
+            actions[i+j] = action[j][0]
+            episode_starts[i+j] = episode_start[j]
 
-        if (not episode_start) and (i > 0):
-            nextvpreds[i - 1] = vpred[0]
+            if (not episode_start[j]) and (i > 0):
+                    nextvpreds[i-1+j] = vpred[j][0]
 
-        clipped_action = action
+        clipped_action = [0 for _ in range(num_robot)]
         # Clip the actions to avoid out of bound error
         if isinstance(env.action_space, gym.spaces.Box):
-            clipped_action = np.clip(action, env.action_space.low, env.action_space.high)
+            for j in range(env.num_robot):
+                clipped_action[j] = np.clip(action[j], env.action_space.low, env.action_space.high)[0]
 
-        if gail:
-            reward = reward_giver.get_reward(observation, clipped_action[0])
-            observation, true_reward, done, info = env.step(clipped_action[0])
-        else:
-            observation, reward, done, info = env.step(clipped_action[0])
-            true_reward = reward
+        # if gail:
+        #     reward = reward_giver.get_reward(observation, clipped_action[0])
+        #     observation, true_reward, done, info = env.step(clipped_action[0])
+        # else:
+        #     observation, reward, done, info = env.step(clipped_action[0])
+        #     true_reward = reward
+        observation, reward, done, info = env.step(clipped_action)
+        true_reward = reward
 
         if callback is not None:
             if callback.on_step() is False:
@@ -154,39 +162,38 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
                     }
                 return
 
-        rewards[i] = reward
-        true_rewards[i] = true_reward
-        dones[i] = done
-        episode_start = done
+        for j in range(env.num_robot):
+            rewards[i+j] = reward[j]
+            true_rewards[i+j] = true_reward[j]
+            dones[i+j] = done[j]
+            episode_start[j] = done[j]
 
-        cur_ep_ret += reward
-        cur_ep_true_ret += true_reward
-        current_it_len += 1
-        current_ep_len += 1
-        if done:
-            terminated = ("terminated" not in info) or info["terminated"]
-            if terminated:
-                last_vpred = 0.0
-            else:
-                last_vpred = policy.value(observation.reshape(-1, *observation.shape), states, done)
-                last_vpred = last_vpred[0]
-            nextvpreds[i] = last_vpred
+            cur_ep_ret += reward[j]
+            cur_ep_true_ret += true_reward[j]
+            current_it_len += 1
+            current_ep_len += 1
+        
+        if all(done):
+            last_vpred = 0.0
+            for j in range(env.num_robot):
+                nextvpreds[i+j] = last_vpred
 
-            # Retrieve unnormalized reward if using Monitor wrapper
-            maybe_ep_info = info.get('episode')
-            if maybe_ep_info is not None:
-                if not gail:
-                    cur_ep_ret = maybe_ep_info['r']
-                cur_ep_true_ret = maybe_ep_info['r']
+                # Retrieve unnormalized reward if using Monitor wrapper
+                maybe_ep_info = info[j].get('episode')
+                if maybe_ep_info is not None:
+                    if not gail:
+                        cur_ep_ret = maybe_ep_info['r']
+                    cur_ep_true_ret = maybe_ep_info['r']
 
-            ep_rets.append(cur_ep_ret)
-            ep_true_rets.append(cur_ep_true_ret)
-            ep_lens.append(current_ep_len)
-            cur_ep_ret = 0
-            cur_ep_true_ret = 0
-            current_ep_len = 0
+                ep_rets.append(cur_ep_ret)
+                ep_true_rets.append(cur_ep_true_ret)
+                ep_lens.append(current_ep_len)
+                cur_ep_ret = 0
+                cur_ep_true_ret = 0
+                current_ep_len = 0
+
             if not isinstance(env, VecEnv):
                 observation = env.reset()
 
-        step += 1
+        step += env.num_robot
     return

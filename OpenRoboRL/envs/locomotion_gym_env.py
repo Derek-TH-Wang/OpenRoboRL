@@ -83,8 +83,8 @@ class LocomotionGymEnv(gym.Env):
     self._env_randomizers = env_randomizers if env_randomizers else []
 
     # This is a workaround due to the issue in b/130128505#comment5
-    if isinstance(self._task, sensor.Sensor):
-      self._sensors.append(self._task)
+    # if isinstance(self._task, sensor.Sensor):
+    #   self._sensors.append(self._task)
 
     # Simulation related parameters.
     self._num_action_repeat = gym_config.simulation_parameters.num_action_repeat
@@ -234,8 +234,8 @@ class LocomotionGymEnv(gym.Env):
       for s in self.all_sensors(self._robot[i]):
         s.on_reset(self._robot[i])
 
-    if self._task and hasattr(self._task, 'reset'):
-      self._task.reset(self)
+      if self._task[i] and hasattr(self._task[i], 'reset'):
+        self._task[i].reset(self._robot[i], self)
 
     # Loop over all env randomizers.
     for i in range(self.num_robot):
@@ -298,16 +298,24 @@ class LocomotionGymEnv(gym.Env):
     obs = [0 for _ in range(self.num_robot)]
     reward = [0 for _ in range(self.num_robot)]
     for i in range(self.num_robot):
+
       self._robot[i].Step(action[i])
-      reward[i] = self._reward()
+
+      reward[i] = self._reward(self._task[i])
+
       for s in self.all_sensors(self._robot[i]):
         s.on_step()
-      if self._task and hasattr(self._task, 'update'):
-        self._task.update(self)
-      done[i] = self._termination(self._robot[i])
+      
+      if self._task[i] and hasattr(self._task[i], 'update'):
+        self._task[i].update()
+      
+      done[i] = self._termination(self._task[i], self._robot[i])
+
       self._env_step_counter += 1
+
       if done[i]:
         self._robot[i].Terminate()
+      
       obs[i] = self._get_observation(self._robot[i])
 
     return obs, reward, done, {}
@@ -358,21 +366,21 @@ class LocomotionGymEnv(gym.Env):
   def world_dict(self, new_dict):
     self._world_dict = new_dict.copy()
 
-  def _termination(self, robot):
+  def _termination(self, task, robot):
     if not robot.is_safe:
       return True
 
-    if self._task and hasattr(self._task, 'done'):
-      return self._task.done(self)
+    if task and hasattr(task, 'done'):
+      return task.done()
 
     for s in self.all_sensors(robot):
       s.on_terminate()
 
     return False
 
-  def _reward(self):
-    if self._task:
-      return self._task(self)
+  def _reward(self, task):
+    if task:
+      return task()
     return 0
 
   def _get_observation(self, robot):
@@ -387,14 +395,6 @@ class LocomotionGymEnv(gym.Env):
 
     observations = collections.OrderedDict(sorted(list(sensors_dict.items())))
     return observations
-
-  def get_time_since_reset(self, robot):
-    """Get the time passed (in seconds) since the last reset.
-
-    Returns:
-      Time in seconds since the last reset.
-    """
-    return robot.GetTimeSinceReset()
 
   @property
   def pybullet_client(self):

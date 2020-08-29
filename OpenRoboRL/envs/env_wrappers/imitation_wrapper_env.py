@@ -72,12 +72,14 @@ class ImitationWrapperEnv(object):
     observation = self._modify_observation(original_observation)
     terminated = done
 
-    done |= (self.env_step_counter >= self._max_episode_steps)
-
-    if not done:
+    num_robot = self._gym_env.num_robot
+    info = [0 for _ in range(num_robot)]
+    for i in range(num_robot):
+      done[i] |= (self.env_step_counter >= self._max_episode_steps)
+      info[i] = {"terminated": terminated}
+  
+    if not all(done):
       self._total_step_count += 1
-
-    info = {"terminated": terminated}
 
     return observation, reward, done, info
 
@@ -113,8 +115,11 @@ class ImitationWrapperEnv(object):
       A numpy array contains the initial original concatenated with target
       observations from the reference motion.
     """
-    target_observation = self._task.build_target_obs()
-    observation = np.concatenate([original_observation, target_observation], axis=-1)
+    num_robot = len(original_observation)
+    observation = [0 for _ in range(num_robot)]
+    for i in range(num_robot):
+      target_observation = self._task[i].build_target_obs()
+      observation[i] = np.concatenate([original_observation[i], target_observation], axis=-1)
     return observation
 
   def _build_observation_space(self):
@@ -129,7 +134,7 @@ class ImitationWrapperEnv(object):
     low0 = obs_space0.low
     high0 = obs_space0.high
 
-    task_low, task_high = self._task.get_target_obs_bounds()
+    task_low, task_high = self._task[0].get_target_obs_bounds()
     low = np.concatenate([low0, task_low], axis=-1)
     high = np.concatenate([high0, task_high], axis=-1)
 

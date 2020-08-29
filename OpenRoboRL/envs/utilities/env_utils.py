@@ -41,19 +41,19 @@ def flatten_observations(observation_dict, observation_excluded=()):
   """
   if not isinstance(observation_excluded, (list, tuple)):
     observation_excluded = [observation_excluded]
-  observations = []
-  for key, value in observation_dict.items():
-    if key not in observation_excluded:
-      observations.append(np.asarray(value).flatten())
-  flat_observations = np.concatenate(observations)
+
+  num_robot = len(observation_dict)
+  flat_observations = [0 for _ in range(num_robot)]
+  for i in range(num_robot):
+    observations = []
+    for key, value in observation_dict[i].items():
+      if key not in observation_excluded:
+        observations.append(np.asarray(value).flatten())
+    flat_observations[i] = np.concatenate(observations)
   if not observation_excluded:
     return flat_observations
   else:
-    observation_dict_after_flatten = {"other": flat_observations}
-    for key in observation_excluded:
-      observation_dict_after_flatten[key] = observation_dict[key]
-    return collections.OrderedDict(
-        sorted(list(observation_dict_after_flatten.items())))
+    raise ValueError('flatten_observations observation_excluded is not none') 
 
 
 def flatten_observation_spaces(observation_spaces, observation_excluded=()):
