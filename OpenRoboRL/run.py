@@ -110,7 +110,7 @@ def test(model, env, num_procs, num_episodes=None):
     for i in range(env.num_robot):
       curr_return += r[i]
 
-    if done:
+    if all(done):
         o = env.reset()
         sum_return += curr_return
         episode_count += 1
@@ -129,11 +129,12 @@ def test(model, env, num_procs, num_episodes=None):
 def main():
   arg_parser = argparse.ArgumentParser()
   arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
-  arg_parser.add_argument("--mode", dest="mode", type=str, default="train")
+  arg_parser.add_argument("--mode", dest="mode", type=str, default="test")
   arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/data/motions/dog_pace.txt")
-  # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/data/policies/dog_trot.zip")
-  arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
-  arg_parser.add_argument("--visualize", dest="visualize", action="store_true", default=False)
+  arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/data/policies/dog_pace.zip")
+  # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="model.zip")
+  # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
+  arg_parser.add_argument("--visualize", dest="visualize", action="store_true", default=True)
   arg_parser.add_argument("--output_dir", dest="output_dir", type=str, default="output")
   arg_parser.add_argument("--num_test_episodes", dest="num_test_episodes", type=int, default=None)
   arg_parser.add_argument("--total_timesteps", dest="total_timesteps", type=int, default=2e8)

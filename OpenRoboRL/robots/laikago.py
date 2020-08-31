@@ -17,6 +17,7 @@
 import math
 import os
 import re
+import copy
 import numpy as np
 import pybullet as pyb
 
@@ -109,6 +110,7 @@ class Laikago(minitaur.Minitaur):
 
   def __init__(self,
       pybullet_client,
+      robot_index=0,
       urdf_filename=URDF_FILENAME,
       enable_clip_motor_commands=True,
       time_step=0.001,
@@ -136,6 +138,7 @@ class Laikago(minitaur.Minitaur):
     
     super(Laikago, self).__init__(
         pybullet_client=pybullet_client,
+        robot_index=robot_index,
         time_step=time_step,
         action_repeat=action_repeat,
         num_motors=NUM_MOTORS,
@@ -154,18 +157,18 @@ class Laikago(minitaur.Minitaur):
 
     return
 
-  def _LoadRobotURDF(self):
+  def _LoadRobotURDF(self, robot_index=0):
     laikago_urdf_path = self.GetURDFFile()
+    pos = copy.deepcopy(self._GetDefaultInitPosition())
+    pos[1] += robot_index
+    ori = self._GetDefaultInitOrientation()
     if self._self_collision_enabled:
       self.quadruped = self._pybullet_client.loadURDF(
-          laikago_urdf_path,
-          self._GetDefaultInitPosition(),
-          self._GetDefaultInitOrientation(),
+          laikago_urdf_path, pos, ori,
           flags=self._pybullet_client.URDF_USE_SELF_COLLISION)
     else:
       self.quadruped = self._pybullet_client.loadURDF(
-          laikago_urdf_path, self._GetDefaultInitPosition(),
-          self._GetDefaultInitOrientation())
+          laikago_urdf_path, pos, ori)
 
   def _SettleDownForReset(self, default_motor_angles, reset_time):
     self.ReceiveObservation()

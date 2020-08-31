@@ -208,6 +208,7 @@ class LocomotionGymEnv(gym.Env):
       # Rebuild the robot
       self._robot = [self._robot_class[i](
           pybullet_client=self._pybullet_client,
+          robot_index = i,
           sensors=self._robot_sensors[i],
           on_rack=self._on_rack) for i in range(self.num_robot)]
 

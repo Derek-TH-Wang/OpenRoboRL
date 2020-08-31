@@ -81,6 +81,7 @@ class Minitaur(object):
 
   def __init__(self,
                pybullet_client,
+               robot_index = 0,
                num_motors=MINITAUR_NUM_MOTORS,
                dofs_per_leg=MINITAUR_DOFS_PER_LEG,
                time_step=0.01,
@@ -151,6 +152,7 @@ class Minitaur(object):
       enable_action_filter: Boolean specifying if a lowpass filter should be
         used to smooth actions.
     """
+    self._robot_index = robot_index
     self.num_motors = num_motors
     self.num_legs = self.num_motors // dofs_per_leg
     self._pybullet_client = pybullet_client
@@ -406,7 +408,7 @@ class Minitaur(object):
         default pose is skipped.
     """
     if reload_urdf:
-      self._LoadRobotURDF()
+      self._LoadRobotURDF(self._robot_index)
       if self._on_rack:
         self.rack_constraint = (
             self._CreateRackConstraint(self._GetDefaultInitPosition(),
@@ -419,9 +421,11 @@ class Minitaur(object):
       self._RecordInertiaInfoFromURDF()
       self.ResetPose(add_constraint=True)
     else:
+      pos = copy.deepcopy(self._GetDefaultInitPosition())
+      pos[1] += self._robot_index
+      ori = self._GetDefaultInitOrientation()
       self._pybullet_client.resetBasePositionAndOrientation(
-          self.quadruped, self._GetDefaultInitPosition(),
-          self._GetDefaultInitOrientation())
+          self.quadruped, pos, ori)
       self._pybullet_client.resetBaseVelocity(self.quadruped, [0, 0, 0],
                                               [0, 0, 0])
       self.ResetPose(add_constraint=False)
@@ -442,7 +446,7 @@ class Minitaur(object):
 
     return
 
-  def _LoadRobotURDF(self):
+  def _LoadRobotURDF(self, robot_index=0):
     """Loads the URDF file for the robot."""
     urdf_file = self.GetURDFFile()
     if self._self_collision_enabled:
