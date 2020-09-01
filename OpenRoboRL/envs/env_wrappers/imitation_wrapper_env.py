@@ -40,8 +40,8 @@ class ImitationWrapperEnv(object):
     self._gym_env = gym_env
     self.observation_space = self._build_observation_space()
 
-    self._episode_length_start = episode_length_start
-    self._episode_length_end = episode_length_end
+    self._episode_length_start = episode_length_start * self._gym_env.num_robot
+    self._episode_length_end = episode_length_end * self._gym_env.num_robot
     self._curriculum_steps = int(np.ceil(curriculum_steps / num_parallel_envs))
     self._total_step_count = 0
 

@@ -27,7 +27,7 @@ from envs.utilities import controllable_env_randomizer_from_config
 from robots import laikago
 
 
-def build_imitation_env(motion_files, num_parallel_envs, mode,
+def build_imitation_env(motion_files, num_robot, num_parallel_envs, mode,
                         enable_randomizer, enable_rendering):
   assert len(motion_files) > 0
 
@@ -39,7 +39,6 @@ def build_imitation_env(motion_files, num_parallel_envs, mode,
 
   gym_config = locomotion_gym_config.LocomotionGymConfig(simulation_parameters=sim_params)
 
-  num_robot = 2
   robot_class = [laikago.Laikago for _ in range(num_robot)]
 
   sensors = [[
