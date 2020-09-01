@@ -44,7 +44,10 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
     """
     # Check when using GAIL
     assert not (gail and reward_giver is None), "You must pass a reward giver when using GAIL"
+    
     num_robot = env.num_robot
+    if horizon % num_robot != 0:
+        horizon += (num_robot - horizon % num_robot)
 
     # Initialize state variables
     step = 0
