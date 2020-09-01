@@ -170,23 +170,6 @@ class Laikago(minitaur.Minitaur):
       self.quadruped = self._pybullet_client.loadURDF(
           laikago_urdf_path, pos, ori)
 
-  def _SettleDownForReset(self, default_motor_angles, reset_time):
-    self.ReceiveObservation()
-
-    if reset_time <= 0:
-      return
-
-    for _ in range(500):
-      self._StepInternal(
-          INIT_MOTOR_ANGLES,
-          motor_control_mode=robot_config.MotorControlMode.POSITION)
-    if default_motor_angles is not None:
-      num_steps_to_reset = int(reset_time / self.time_step)
-      for _ in range(num_steps_to_reset):
-        self._StepInternal(
-            default_motor_angles,
-            motor_control_mode=robot_config.MotorControlMode.POSITION)
-
   def GetHipPositionsInBaseFrame(self):
     return _DEFAULT_HIP_POSITIONS
 

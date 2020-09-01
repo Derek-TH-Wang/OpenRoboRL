@@ -97,6 +97,7 @@ def test(model, env, num_procs, num_episodes=None):
   curr_return = 0
   sum_return = 0
   episode_count = 0
+  a = [0 for i in range(env.num_robot)]
 
   if num_episodes is not None:
     num_local_episodes = int(np.ceil(float(num_episodes) / num_procs))
@@ -105,7 +106,7 @@ def test(model, env, num_procs, num_episodes=None):
 
   o = env.reset()
   while episode_count < num_local_episodes:
-    a, _ = model.predict(o, deterministic=True)
+    a, _ = model.predict(np.array(o), deterministic=True)
     o, r, done, info = env.step(a)
     for i in range(env.num_robot):
       curr_return += r[i]
@@ -129,7 +130,7 @@ def test(model, env, num_procs, num_episodes=None):
 def main():
   arg_parser = argparse.ArgumentParser()
   arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
-  arg_parser.add_argument("--mode", dest="mode", type=str, default="test")
+  arg_parser.add_argument("--mode", dest="mode", type=str, default="train")
   arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/data/motions/dog_pace.txt")
   arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/data/policies/dog_pace.zip")
   # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="model.zip")

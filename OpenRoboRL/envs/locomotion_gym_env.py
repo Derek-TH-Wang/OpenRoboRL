@@ -298,10 +298,22 @@ class LocomotionGymEnv(gym.Env):
     done = [False for _ in range(self.num_robot)]
     obs = [0 for _ in range(self.num_robot)]
     reward = [0 for _ in range(self.num_robot)]
+
+
     for i in range(self.num_robot):
+      self._robot[i].SetAct(action[i])
+    for i in range(self._robot[i].action_repeat):
+      for j in range(self.num_robot):
+        self._robot[j].RobotStep(i)
+      self._pybullet_client.stepSimulation()
+      for j in range(self.num_robot):
+        self._robot[j].ReceiveObservation()
 
-      self._robot[i].Step(action[i])
+    # for i in range(self.num_robot):
+    #   self._robot[i].Step(action[i])
 
+
+    for i in range(self.num_robot):
       reward[i] = self._reward(self._task[i])
 
       for s in self.all_sensors(self._robot[i]):

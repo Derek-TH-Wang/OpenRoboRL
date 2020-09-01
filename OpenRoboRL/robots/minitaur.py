@@ -181,6 +181,7 @@ class Minitaur(object):
     self._enable_action_interpolation = enable_action_interpolation
     self._enable_action_filter = enable_action_filter
     self._filter_action = None
+    self._action = np.zeros(self.num_motors)
     self._last_action = np.zeros(self.num_motors)
 
     if not motor_model_class:
@@ -234,29 +235,41 @@ class Minitaur(object):
   def GetTimeSinceReset(self):
     return self._step_counter * self.time_step
 
-  def _StepInternal(self, action, motor_control_mode=None):
-    self.ApplyAction(action, motor_control_mode)
-    self._pybullet_client.stepSimulation()
-    self.ReceiveObservation()
-    self._state_action_counter += 1
-
-    return
-
   def Step(self, action):
     """Steps simulation."""
     self._last_action = action
 
     if self._enable_action_filter:
       action = self._FilterAction(action)
-
+    
     for i in range(self._action_repeat):
       proc_action = self.ProcessAction(action, i)
-      self._StepInternal(proc_action)
+      # if i == self._action_repeat-1:
+      #   self._filter_action = action
+      self.ApplyAction(proc_action)
+      self._pybullet_client.stepSimulation()
+      self.ReceiveObservation()
+
+      self._state_action_counter += 1
       self._step_counter += 1
 
     self._filter_action = action
 
     return
+
+  def SetAct(self, action):
+    self._last_action = action
+    if self._enable_action_filter:
+      self._action = self._FilterAction(action)
+    return
+  
+  def RobotStep(self, i):
+    proc_action = self.ProcessAction(self._action, i)
+    self.ApplyAction(proc_action)
+    self._state_action_counter += 1
+    self._step_counter += 1
+    if i == self._action_repeat-1:
+      self._filter_action = self._action
 
   def Terminate(self):
     pass
@@ -439,7 +452,7 @@ class Minitaur(object):
     self._filter_action = None
     self._last_action = np.zeros(self.num_motors)
 
-    self._SettleDownForReset(default_motor_angles, reset_time)
+    self.ReceiveObservation()
 
     if self._enable_action_filter:
       self._ResetActionFilter()
@@ -459,41 +472,6 @@ class Minitaur(object):
       self.quadruped = self._pybullet_client.loadURDF(
           urdf_file, self._GetDefaultInitPosition(),
           self._GetDefaultInitOrientation())
-
-  def _SettleDownForReset(self, default_motor_angles, reset_time):
-    """Sets the default motor angles and waits for the robot to settle down.
-
-    The reset is skipped is reset_time is less than zereo.
-
-    Args:
-      default_motor_angles: A list of motor angles that the robot will achieve
-        at the end of the reset phase.
-      reset_time: The time duration for the reset phase.
-    """
-    if reset_time <= 0:
-      return
-
-    # Important to fill the observation buffer.
-    self.ReceiveObservation()
-    for _ in range(100):
-      self._StepInternal(
-          [math.pi / 2] * self.num_motors,
-          motor_control_mode=robot_config.MotorControlMode.POSITION)
-      # Don't continue to reset if a safety error has occurred.
-      if not self._is_safe:
-        return
-
-    if default_motor_angles is None:
-      return
-
-    num_steps_to_reset = int(reset_time / self.time_step)
-    for _ in range(num_steps_to_reset):
-      self._StepInternal(
-          default_motor_angles,
-          motor_control_mode=robot_config.MotorControlMode.POSITION)
-      # Don't continue to reset if a safety error has occurred.
-      if not self._is_safe:
-        return
 
   def _SetMotorTorqueById(self, motor_id, torque):
     self._pybullet_client.setJointMotorControl2(
@@ -1434,3 +1412,6 @@ class Minitaur(object):
     del cls
     return minitaur_constants
 
+  @property
+  def action_repeat(self):
+    return self._action_repeat

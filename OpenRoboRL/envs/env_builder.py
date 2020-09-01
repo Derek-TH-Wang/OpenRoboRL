@@ -39,7 +39,7 @@ def build_imitation_env(motion_files, num_parallel_envs, mode,
 
   gym_config = locomotion_gym_config.LocomotionGymConfig(simulation_parameters=sim_params)
 
-  num_robot = 1
+  num_robot = 2
   robot_class = [laikago.Laikago for _ in range(num_robot)]
 
   sensors = [[

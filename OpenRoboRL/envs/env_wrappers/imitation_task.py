@@ -1146,12 +1146,12 @@ class ImitationTask(object):
   def _rand_uniform(self, val_min, val_max, size=None):
     """Samples random float between [val_min, val_max]."""
     rand_val = np.random.uniform(val_min, val_max, size=size)
-    return rand_val
+    return val_min
 
   def _randint(self, val_min, val_max, size=None):
     """Samples random integer between [val_min, val_max]."""
     rand_val = np.random.randint(val_min, val_max, size=size)
-    return rand_val
+    return val_min
 
   def _randn(self, mean, std, size=None):
     """Samples random value from gaussian."""
@@ -1159,7 +1159,7 @@ class ImitationTask(object):
       size = []
     rand_val = np.random.randn(*size)
     rand_val = std * rand_val + mean
-    return rand_val
+    return mean
 
   def _calc_heading(self, root_rotation):
     """Returns the heading of a rotation q, specified as a quaternion.
