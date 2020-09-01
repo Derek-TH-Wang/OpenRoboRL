@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import gym
 
-from envs.env_wrappers import env_utils
+from envs.utilities import env_utils
 
 
 class ObservationDictionaryToArrayWrapper(gym.Env):
@@ -69,3 +69,5 @@ class ObservationDictionaryToArrayWrapper(gym.Env):
     observation_dict, reward, done, _ = self._gym_env.step(action)
     return self._flatten_observation(observation_dict), reward, done, _
 
+  def render(self, mode='human'):
+    return self._gym_env.render(mode)

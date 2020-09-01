@@ -44,13 +44,12 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
     """
     # Check when using GAIL
     assert not (gail and reward_giver is None), "You must pass a reward giver when using GAIL"
-    horizon -= horizon%env.num_robot
-    if horizon <= 0:
-        raise ValueError('Incorrect number of horizon')
+    num_robot = env.num_robot
+
     # Initialize state variables
     step = 0
-    action = [env.action_space.sample() for _ in range(env.num_robot)]  # not used, just so we have the datatype
     observation = env.reset()
+    action = [env.action_space.sample() for _ in range(num_robot)] # not used, just so we have the datatype
     vpred = [0 for _ in range(env.num_robot)]
     info = [0 for _ in range(env.num_robot)]
     reward = [0 for _ in range(env.num_robot)]
@@ -78,11 +77,11 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
 
     callback.on_rollout_start()
 
-    
     while True:
-        for j in range(env.num_robot):
-            act, vpred[j], state[j], info[j] = policy.step(observation[j].reshape(-1, observation.shape[1]), state[j], done[j])
-            action[j] = act[0]
+        for j in range(num_robot):
+            observation[j] = observation[j].reshape(-1, *observation[j].shape)
+            act, vpred[j], state[j], info[j] = policy.step(observation[j], state[j], done[j])
+            action[j] = act
         # Slight weirdness here because we need value function at time T
         # before returning segment [0, T-1] so we get the correct
         # terminal value
@@ -107,7 +106,8 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
                     "total_timestep": current_it_len,
                     'continue_training': True
             }
-            _, vpred[j], _, info[j] = policy.step(observation[j].reshape(-1, observation.shape[1]))
+            for j in range(num_robot):
+                _, vpred[j], _, info[j] = policy.step(observation[j])
             # Be careful!!! if you change the downstream algorithm to aggregate
             # several of these batches, then be sure to do a deepcopy
             ep_rets = []
@@ -125,20 +125,20 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
             episode_starts[i+j] = episode_start[j]
 
             if (not episode_start[j]) and (i > 0):
-                nextvpreds[i-1+j] = vpred[j][0]
+                    nextvpreds[i-1+j] = vpred[j][0]
 
-        clipped_action = action
+        clipped_action = [0 for _ in range(num_robot)]
         # Clip the actions to avoid out of bound error
         if isinstance(env.action_space, gym.spaces.Box):
             for j in range(env.num_robot):
-                clipped_action[j] = np.clip(action[j], env.action_space.low, env.action_space.high)
+                clipped_action[j] = np.clip(action[j], env.action_space.low, env.action_space.high)[0]
 
         # if gail:
-        #     reward = reward_giver.get_reward(observation, clipped_action)
-        #     observation, true_reward, done, info = env.step(clipped_action)
+        #     reward = reward_giver.get_reward(observation, clipped_action[0])
+        #     observation, true_reward, done, info = env.step(clipped_action[0])
         # else:
-            # observation, reward, done, info = env.step(clipped_action)
-            # true_reward = reward
+        #     observation, reward, done, info = env.step(clipped_action[0])
+        #     true_reward = reward
         observation, reward, done, info = env.step(clipped_action)
         true_reward = reward
 
@@ -179,7 +179,7 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
                 nextvpreds[i+j] = last_vpred
 
                 # Retrieve unnormalized reward if using Monitor wrapper
-                maybe_ep_info = info.get('episode')
+                maybe_ep_info = info[j].get('episode')
                 if maybe_ep_info is not None:
                     if not gail:
                         cur_ep_ret = maybe_ep_info['r']
