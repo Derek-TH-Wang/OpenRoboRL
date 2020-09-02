@@ -17,7 +17,7 @@
 
 import numpy as np
 
-from utilities import pose3d
+from envs.utilities import pose3d
 from pybullet_utils import transformations
 
 

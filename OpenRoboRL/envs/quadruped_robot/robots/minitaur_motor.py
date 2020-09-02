@@ -17,7 +17,7 @@
 
 import numpy as np
 
-from robots import robot_config
+from envs.quadruped_robot.robots import robot_config
 
 VOLTAGE_CLIPPING = 50
 OBSERVED_TORQUE_LIMIT = 5.7

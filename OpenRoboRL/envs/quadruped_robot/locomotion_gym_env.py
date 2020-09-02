@@ -24,8 +24,8 @@ import pybullet
 import pybullet_utils.bullet_client as bullet_client
 import pybullet_data as pd
 
-from envs.sensors import sensor
-from envs.sensors import space_utils
+from envs.quadruped_robot.sensors import sensor
+from envs.quadruped_robot.sensors import space_utils
 
 
 _ACTION_EPS = 0.01

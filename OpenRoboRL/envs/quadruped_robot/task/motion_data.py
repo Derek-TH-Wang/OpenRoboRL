@@ -21,8 +21,8 @@ import math
 import enum
 import numpy as np
 
-from utilities import pose3d
-from utilities import motion_util
+from envs.utilities import pose3d
+from envs.quadruped_robot.task import motion_util
 from pybullet_utils import transformations
 
 

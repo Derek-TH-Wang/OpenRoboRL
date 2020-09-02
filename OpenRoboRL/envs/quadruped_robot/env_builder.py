@@ -13,18 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from envs import locomotion_gym_env
-from envs import locomotion_gym_config
-from envs.env_wrappers import imitation_wrapper_env
-from envs.env_wrappers import observation_dictionary_to_array_wrapper
-from envs.env_wrappers import trajectory_generator_wrapper_env
-from envs.env_wrappers import simple_openloop
-from envs.env_wrappers import imitation_task
-from envs.sensors import environment_sensors
-from envs.sensors import sensor_wrappers
-from envs.sensors import robot_sensors
-from envs.utilities import controllable_env_randomizer_from_config
-from robots import laikago
+from envs.quadruped_robot import locomotion_gym_env
+from envs.quadruped_robot import locomotion_gym_config
+from envs.quadruped_robot.wrappers import imitation_wrapper_env
+from envs.quadruped_robot.wrappers import observation_dictionary_to_array_wrapper
+from envs.quadruped_robot.wrappers import trajectory_generator_wrapper_env
+from envs.quadruped_robot.wrappers import simple_openloop
+from envs.quadruped_robot.task import imitation_task
+from envs.quadruped_robot.sensors import environment_sensors
+from envs.quadruped_robot.sensors import sensor_wrappers
+from envs.quadruped_robot.sensors import robot_sensors
+from envs.quadruped_robot.randomizer import controllable_env_randomizer_from_config
+from envs.quadruped_robot.robots import laikago
 
 
 def build_imitation_env(motion_files, num_robot, num_parallel_envs, mode,

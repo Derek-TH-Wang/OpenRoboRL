@@ -23,11 +23,11 @@ import copy
 import math
 import re
 import numpy as np
-from robots import minitaur_constants
-from robots import minitaur_motor
-from robots import robot_config
-from robots import action_filter
-from robots import kinematics
+from envs.quadruped_robot.robots import minitaur_constants
+from envs.quadruped_robot.robots import minitaur_motor
+from envs.quadruped_robot.robots import robot_config
+from envs.quadruped_robot.robots import action_filter
+from envs.quadruped_robot.robots import kinematics
 
 INIT_POSITION = [0, 0, .2]
 INIT_RACK_POSITION = [0, 0, 1]

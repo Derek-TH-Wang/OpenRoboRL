@@ -18,7 +18,7 @@
 import collections
 import numpy as np
 
-from robots import robot_config
+from envs.quadruped_robot.robots import robot_config
 
 NUM_MOTORS = 12
 

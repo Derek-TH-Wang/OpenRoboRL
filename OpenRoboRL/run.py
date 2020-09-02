@@ -21,9 +21,9 @@ import random
 import tensorflow as tf
 import time
 
-import envs.env_builder as env_builder
-import learning.imitation_policies as imitation_policies
-import learning.ppo_imitation as ppo_imitation
+import envs.quadruped_robot.env_builder as env_builder
+import agents.imitation_policies as imitation_policies
+import agents.ppo_imitation as ppo_imitation
 
 from stable_baselines.common.callbacks import CheckpointCallback
 
@@ -132,8 +132,8 @@ def main():
   arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
   arg_parser.add_argument("--num_robot", dest="num_robot", type=int, default="2")
   arg_parser.add_argument("--mode", dest="mode", type=str, default="train")
-  arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/data/motions/dog_pace.txt")
-  arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/data/policies/dog_pace.zip")
+  arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt")
+  arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/policies/dog_pace.zip")
   # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="model.zip")
   # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
   arg_parser.add_argument("--visualize", dest="visualize", action="store_true", default=False)

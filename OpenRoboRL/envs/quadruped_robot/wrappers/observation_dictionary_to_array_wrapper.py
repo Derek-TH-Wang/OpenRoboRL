@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import gym
 
-from envs.utilities import env_utils
+from envs.quadruped_robot.wrappers import env_utils
 
 
 class ObservationDictionaryToArrayWrapper(gym.Env):

@@ -19,9 +19,9 @@ import math
 import attr
 import numpy as np
 
-from robots import laikago_pose_utils
-from robots import minitaur_pose_utils
-from robots import laikago
+from envs.quadruped_robot.robots import laikago_pose_utils
+from envs.quadruped_robot.robots import minitaur_pose_utils
+from envs.quadruped_robot.robots import laikago
 
 _ABDUCTION_ACTION_INDEXES = [0, 3, 6, 9]
 

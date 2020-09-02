@@ -17,7 +17,7 @@ and it should be good to go.
 
 To train a policy, run the following command:
 
-``python3 OpenRoboRL/run.py --mode train --motion_file OpenRoboRL/learning/data/motions/dog_pace.txt --int_save_freq 10000000 --visualize``
+``python3 OpenRoboRL/run.py --mode train --motion_file OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt --int_save_freq 10000000 --visualize``
 
 - `--mode` can be either `train` or `test`.
 - `--motion_file` specifies the reference motion that the robot is to imitate. `OpenRoboRL/learning/data/motions/` contains different reference motion clips.
@@ -27,7 +27,7 @@ To train a policy, run the following command:
 
 For parallel training with MPI run:
 
-``mpiexec -n 8 python3 OpenRoboRL/run.py --mode train --motion_file OpenRoboRL/learning/data/motions/dog_pace.txt --int_save_freq 10000000``
+``mpiexec -n 8 python3 OpenRoboRL/run.py --mode train --motion_file OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt --int_save_freq 10000000``
 
 - `-n` is the number of parallel.
 
@@ -35,7 +35,7 @@ For parallel training with MPI run:
 
 To test a trained model, run the following command
 
-``python3 OpenRoboRL/run.py --mode test --motion_file OpenRoboRL/learning/data/motions/dog_pace.txt --model_file OpenRoboRL/learning/data/policies/dog_pace.zip --visualize``
+``python3 OpenRoboRL/run.py --mode test --motion_file OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt --model_file OpenRoboRL/envs/quadruped_robot/task/policies/dog_pace.zip --visualize``
 
 - `--model_file` specifies the `.zip` file that contains the trained model. Pretrained models are available in `OpenRoboRL/learning/data/policies/`.
 

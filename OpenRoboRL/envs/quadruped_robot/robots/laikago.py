@@ -21,12 +21,12 @@ import copy
 import numpy as np
 import pybullet as pyb
 
-from robots import laikago_pose_utils
-from robots import laikago_constants
-from robots import laikago_motor
-from robots import minitaur
-from robots import robot_config
-from envs import locomotion_gym_config
+from envs.quadruped_robot.robots import laikago_pose_utils
+from envs.quadruped_robot.robots import laikago_constants
+from envs.quadruped_robot.robots import laikago_motor
+from envs.quadruped_robot.robots import minitaur
+from envs.quadruped_robot.robots import robot_config
+from envs.quadruped_robot import locomotion_gym_config
 
 NUM_MOTORS = 12
 NUM_LEGS = 4
