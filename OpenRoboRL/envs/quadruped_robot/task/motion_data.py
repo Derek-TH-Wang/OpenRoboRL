@@ -22,7 +22,6 @@ import enum
 import numpy as np
 
 from envs.utilities import pose3d
-from envs.quadruped_robot.task import motion_util
 from pybullet_utils import transformations
 
 
@@ -442,7 +441,7 @@ class MotionData(object):
 
     blend_root_rot = transformations.quaternion_multiply(
         cycle_offset_rot, blend_root_rot)
-    blend_root_rot = motion_util.standardize_quaternion(blend_root_rot)
+    blend_root_rot = pose3d.standardize_quaternion(blend_root_rot)
 
     self.set_frame_root_pos(blend_root_pos, blend_frame)
     self.set_frame_root_rot(blend_root_rot, blend_frame)
@@ -501,7 +500,7 @@ class MotionData(object):
                                                       blend)
     blend_joints = (1.0 - blend) * joints0 + blend * joints1
 
-    blend_root_rot = motion_util.standardize_quaternion(blend_root_rot)
+    blend_root_rot = pose3d.standardize_quaternion(blend_root_rot)
 
     blend_frame = np.zeros(self.get_frame_size())
     self.set_frame_root_pos(blend_root_pos, blend_frame)
@@ -549,7 +548,7 @@ class MotionData(object):
 
         root_rot = self.get_frame_root_rot(curr_frame)
         root_rot = pose3d.QuaternionNormalize(root_rot)
-        root_rot = motion_util.standardize_quaternion(root_rot)
+        root_rot = pose3d.standardize_quaternion(root_rot)
 
         self.set_frame_root_pos(root_pos, curr_frame)
         self.set_frame_root_rot(root_rot, curr_frame)
@@ -585,7 +584,7 @@ class MotionData(object):
     rot_end = self.get_frame_root_rot(last_frame)
     inv_rot_start = transformations.quaternion_conjugate(rot_start)
     drot = transformations.quaternion_multiply(rot_end, inv_rot_start)
-    cycle_delta_heading = motion_util.calc_heading(drot)
+    cycle_delta_heading = pose3d.calc_heading(drot)
 
     return cycle_delta_heading
 

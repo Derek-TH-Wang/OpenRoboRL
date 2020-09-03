@@ -17,8 +17,6 @@ from envs.quadruped_robot import locomotion_gym_env
 from envs.quadruped_robot import locomotion_gym_config
 from envs.quadruped_robot.wrappers import imitation_wrapper_env
 from envs.quadruped_robot.wrappers import observation_dictionary_to_array_wrapper
-from envs.quadruped_robot.wrappers import trajectory_generator_wrapper_env
-from envs.quadruped_robot.wrappers import simple_openloop
 from envs.quadruped_robot.task import imitation_task
 from envs.quadruped_robot.randomizer import controllable_env_randomizer_from_config
 from envs.quadruped_robot.robots import laikago
@@ -34,8 +32,6 @@ def build_imitation_env(robot, motion_files, num_robot, num_parallel_envs, mode,
   sim_params = locomotion_gym_config.SimulationParameters()
   sim_params.enable_rendering = enable_rendering
 
-  gym_config = locomotion_gym_config.LocomotionGymConfig(simulation_parameters=sim_params)
-
   task = [imitation_task.ImitationTask(ref_motion_filenames=motion_files,
                                       enable_cycle_sync=True,
                                       tar_frame_steps=[1, 2, 10, 30],
@@ -48,12 +44,10 @@ def build_imitation_env(robot, motion_files, num_robot, num_parallel_envs, mode,
     randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(verbose=False)
     randomizers.append(randomizer)
 
-  env = locomotion_gym_env.LocomotionGymEnv(gym_config=gym_config, name_robot=robot, num_robot = num_robot,
+  env = locomotion_gym_env.LocomotionGymEnv(sim_params=sim_params, name_robot=robot, num_robot = num_robot,
                                             env_randomizers=randomizers, task=task)
 
   env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(env)
-  env = trajectory_generator_wrapper_env.TrajectoryGeneratorWrapperEnv(env,
-                                                                       trajectory_generator=simple_openloop.LaikagoPoseOffsetGenerator(action_limit=laikago.UPPER_BOUND))
 
   if mode == "test":
       curriculum_episode_length_start = curriculum_episode_length_end

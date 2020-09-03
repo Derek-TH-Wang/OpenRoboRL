@@ -18,7 +18,6 @@
 import collections
 import numpy as np
 
-from envs.quadruped_robot.robots import robot_config
 
 NUM_MOTORS = 12
 
@@ -56,7 +55,7 @@ class MotorModel(object):
                kp=60,
                kd=1,
                torque_limits=None,
-               motor_control_mode=robot_config.MotorControlMode.POSITION):
+               motor_control_mode=POSITION):
     self._kp = kp
     self._kd = kd
     self._torque_limits = torque_limits
@@ -130,12 +129,12 @@ class MotorModel(object):
     if not motor_control_mode:
       motor_control_mode = self._motor_control_mode
 
-    if motor_control_mode is robot_config.MotorControlMode.PWM:
+    if motor_control_mode is PWM:
       raise ValueError(
           "{} is not a supported motor control mode".format(motor_control_mode))
 
     # No processing for motor torques
-    if motor_control_mode is robot_config.MotorControlMode.TORQUE:
+    if motor_control_mode is TORQUE:
       assert len(motor_commands) == NUM_MOTORS
       motor_torques = self._strength_ratios * motor_commands
       return motor_torques, motor_torques

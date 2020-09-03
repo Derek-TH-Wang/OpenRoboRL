@@ -25,7 +25,6 @@ import numpy as np
 
 from envs.utilities import pose3d
 from envs.quadruped_robot.task import motion_data
-from envs.quadruped_robot.task import motion_util
 from pybullet_utils import transformations
 
 
@@ -266,7 +265,7 @@ class ImitationTask(object):
     ref_base_pos = self._get_ref_base_position()
     sim_base_rot = np.array(robot.GetBaseOrientation())
 
-    heading = motion_util.calc_heading(sim_base_rot)
+    heading = pose3d.calc_heading(sim_base_rot)
     if self._tar_obs_noise is not None:
       heading += self._randn(0, self._tar_obs_noise[0])
     inv_heading_rot = transformations.quaternion_about_axis(-heading, [0, 0, 1])
@@ -283,7 +282,7 @@ class ImitationTask(object):
 
       tar_root_rot = transformations.quaternion_multiply(
           inv_heading_rot, tar_root_rot)
-      tar_root_rot = motion_util.standardize_quaternion(tar_root_rot)
+      tar_root_rot = pose3d.standardize_quaternion(tar_root_rot)
 
       motion.set_frame_root_pos(tar_root_pos, tar_pose)
       motion.set_frame_root_rot(tar_root_rot, tar_pose)
@@ -471,7 +470,7 @@ class ImitationTask(object):
     root_rot_diff = transformations.quaternion_multiply(
         root_rot_ref, transformations.quaternion_conjugate(root_rot_sim))
     _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(root_rot_diff)
-    root_rot_diff_angle = motion_util.normalize_rotation_angle(
+    root_rot_diff_angle = pose3d.normalize_rotation_angle(
         root_rot_diff_angle)
     root_rot_err = root_rot_diff_angle * root_rot_diff_angle
 
@@ -551,7 +550,7 @@ class ImitationTask(object):
         transformations.quaternion_conjugate(np.array(root_rot_sim)))
     _, root_rot_diff_angle = pose3d.QuaternionToAxisAngle(
         root_rot_diff)
-    root_rot_diff_angle = motion_util.normalize_rotation_angle(
+    root_rot_diff_angle = pose3d.normalize_rotation_angle(
         root_rot_diff_angle)
     root_rot_fail = (np.abs(root_rot_diff_angle) > rot_fail_threshold)
 
@@ -708,8 +707,8 @@ class ImitationTask(object):
     self._origin_offset_pos = sim_root_pos - ref_root_pos
     self._origin_offset_pos[2] = 0
 
-    ref_heading = motion_util.calc_heading(ref_root_rot)
-    sim_heading = motion_util.calc_heading(sim_root_rot)
+    ref_heading = pose3d.calc_heading(ref_root_rot)
+    sim_heading = pose3d.calc_heading(sim_root_rot)
     delta_heading = sim_heading - ref_heading
     self._origin_offset_rot = transformations.quaternion_about_axis(
         delta_heading, [0, 0, 1])
@@ -986,8 +985,8 @@ class ImitationTask(object):
     default_root_rot = motion.get_frame_root_rot(warmup_pose)
     default_root_pos = motion.get_frame_root_pos(warmup_pose)
 
-    pose_heading = motion_util.calc_heading(pose_root_rot)
-    default_heading = motion_util.calc_heading(default_root_rot)
+    pose_heading = pose3d.calc_heading(pose_root_rot)
+    default_heading = pose3d.calc_heading(default_root_rot)
     delta_heading = pose_heading - default_heading
     delta_heading_rot = transformations.quaternion_about_axis(
         delta_heading, [0, 0, 1])
@@ -1183,7 +1182,7 @@ class ImitationTask(object):
         self._get_default_root_rotation())
     rel_rotation = transformations.quaternion_multiply(root_rotation,
                                                        inv_default_rotation)
-    heading = motion_util.calc_heading(rel_rotation)
+    heading = pose3d.calc_heading(rel_rotation)
     return heading
 
   def _calc_heading_rot(self, root_rotation):
@@ -1206,7 +1205,7 @@ class ImitationTask(object):
         self._get_default_root_rotation())
     rel_rotation = transformations.quaternion_multiply(root_rotation,
                                                        inv_default_rotation)
-    heading_rot = motion_util.calc_heading_rot(rel_rotation)
+    heading_rot = pose3d.calc_heading_rot(rel_rotation)
     return heading_rot
 
   def _enable_warmup(self):

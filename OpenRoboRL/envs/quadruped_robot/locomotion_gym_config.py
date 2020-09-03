@@ -41,18 +41,4 @@ class SimulationParameters(object):
   render_height = attr.ib(type=int, default=360)
   egl_rendering = attr.ib(type=bool, default=False)
 
-
-@attr.s
-class ScalarField(object):
-  """A named scalar space with bounds."""
-  name = attr.ib(type=str)
-  upper_bound = attr.ib(type=float)
-  lower_bound = attr.ib(type=float)
-
-
-@attr.s
-class LocomotionGymConfig(object):
-  """Grouped Config Parameters for LocomotionGym."""
-  simulation_parameters = attr.ib(type=SimulationParameters)
-  log_path = attr.ib(type=typing.Text, default=None)
-  profiling_path = attr.ib(type=typing.Text, default=None)
+  draw_ref_model_alpha = attr.ib(type=float, default=0.5)

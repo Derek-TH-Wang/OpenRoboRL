@@ -24,10 +24,8 @@ import math
 import re
 import typing
 import numpy as np
-from envs.quadruped_robot.robots import minitaur_constants
 from envs.quadruped_robot.robots import minitaur_motor
-from envs.quadruped_robot.robots import robot_config
-from envs.quadruped_robot.robots import action_filter
+from envs.utilities import action_filter
 
 OVERHEAT_SHUTDOWN_TORQUE = 2.45
 OVERHEAT_SHUTDOWN_TIME = 1.0
@@ -225,6 +223,7 @@ class Minitaur(object):
     return
 
   def SetAct(self, action):
+    action += self._init_motor_angle
     self._last_action = action
     if self._enable_action_filter:
       self._action = self._FilterAction(action)
@@ -1426,11 +1425,6 @@ class Minitaur(object):
   @property
   def joint_states(self):
     return self._joint_states
-
-  @classmethod
-  def GetConstants(cls):
-    del cls
-    return minitaur_constants
 
   @property
   def action_repeat(self):

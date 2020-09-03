@@ -20,8 +20,9 @@ from __future__ import division
 from __future__ import print_function
 
 import gym
-
-from envs.quadruped_robot.wrappers import env_utils
+import collections
+from gym import spaces
+import numpy as np
 
 
 class ObservationDictionaryToArrayWrapper(gym.Env):
@@ -39,16 +40,76 @@ class ObservationDictionaryToArrayWrapper(gym.Env):
     return getattr(self._gym_env, attr)
 
   def _flatten_observation_spaces(self, observation_spaces):
-    flat_observation_space = env_utils.flatten_observation_spaces(
-        observation_spaces=observation_spaces,
-        observation_excluded=self.observation_excluded)
-    return flat_observation_space
 
-  def _flatten_observation(self, input_observation):
-    """Flatten the dictionary to an array."""
-    return env_utils.flatten_observations(
-        observation_dict=input_observation,
-        observation_excluded=self.observation_excluded)
+
+    """Flattens the dictionary observation spaces to gym.spaces.Box.
+
+    If observation_excluded is passed in, it will still return a dictionary,
+    which includes all the (key, observation_spaces[key]) in observation_excluded,
+    and ('other': the flattened Box space).
+
+    Args:
+      observation_spaces: A dictionary of all the observation spaces.
+      observation_excluded: A list/tuple of all the keys of the observations to be
+        ignored during flattening.
+
+    Returns:
+      A box space or a dictionary of observation spaces based on whether
+        observation_excluded is empty.
+    """
+    observation_excluded=self.observation_excluded
+    if not isinstance(observation_excluded, (list, tuple)):
+      observation_excluded = [observation_excluded]
+    lower_bound = []
+    upper_bound = []
+    for key, value in observation_spaces.spaces.items():
+      if key not in observation_excluded:
+        lower_bound.append(np.asarray(value.low).flatten())
+        upper_bound.append(np.asarray(value.high).flatten())
+    lower_bound = np.concatenate(lower_bound)
+    upper_bound = np.concatenate(upper_bound)
+    observation_space = spaces.Box(
+        np.array(lower_bound), np.array(upper_bound), dtype=np.float32)
+    if not observation_excluded:
+      return observation_space
+    else:
+      observation_spaces_after_flatten = {"other": observation_space}
+      for key in observation_excluded:
+        observation_spaces_after_flatten[key] = observation_spaces[key]
+      return spaces.Dict(observation_spaces_after_flatten)
+
+  def _flatten_observation(self, observation_dict):
+    """Flattens the observation dictionary to an array.
+
+    If observation_excluded is passed in, it will still return a dictionary,
+    which includes all the (key, observation_dict[key]) in observation_excluded,
+    and ('other': the flattened array).
+
+    Args:
+      observation_dict: A dictionary of all the observations.
+      observation_excluded: A list/tuple of all the keys of the observations to be
+        ignored during flattening.
+
+    Returns:
+      An array or a dictionary of observations based on whether
+        observation_excluded is empty.
+    """
+    observation_excluded=self.observation_excluded
+    if not isinstance(observation_excluded, (list, tuple)):
+      observation_excluded = [observation_excluded]
+
+    num_robot = len(observation_dict)
+    flat_observations = [0 for _ in range(num_robot)]
+    for i in range(num_robot):
+      observations = []
+      for key, value in observation_dict[i].items():
+        if key not in observation_excluded:
+          observations.append(np.asarray(value).flatten())
+      flat_observations[i] = np.concatenate(observations)
+    if not observation_excluded:
+      return flat_observations
+    else:
+      raise ValueError('flatten_observations observation_excluded is not none') 
 
   def reset(self, initial_motor_angles=None, reset_duration=0.0):
     observation = self._gym_env.reset(

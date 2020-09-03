@@ -22,7 +22,6 @@ from __future__ import print_function
 import numpy as np
 import typing
 
-from envs.quadruped_robot.robots import minitaur_pose_utils
 from envs.quadruped_robot.sensors import sensor
 
 _ARRAY = typing.Iterable[float]

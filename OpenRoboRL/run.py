@@ -128,13 +128,19 @@ def test(model, env, num_procs, num_episodes=None):
   return
 
 def main():
+  robot = "laikago"
+
   arg_parser = argparse.ArgumentParser()
   arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
-  arg_parser.add_argument("--robot", dest="robot", type=str, default="laikago")
-  arg_parser.add_argument("--num_robot", dest="num_robot", type=int, default="2")
-  arg_parser.add_argument("--mode", dest="mode", type=str, default="test")
-  arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt")
-  arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/policies/dog_pace.zip")
+  arg_parser.add_argument("--robot", dest="robot", type=str, default=robot)
+  arg_parser.add_argument("--num_robot", dest="num_robot", type=int, default="1")
+  arg_parser.add_argument("--mode", dest="mode", type=str, default="train")
+  if robot == "laikago":
+    arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt")
+    arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/policies/dog_pace.zip")
+  elif robot == "mini_cheetah":
+    arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/motions/dog_trot_mini_cheetah.txt")
+    arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/policies/mini_cheetah_trot.zip")
   # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="model.zip")
   # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
   arg_parser.add_argument("--visualize", dest="visualize", action="store_true", default=True)

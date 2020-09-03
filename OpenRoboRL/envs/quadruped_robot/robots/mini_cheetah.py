@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Google Research Authors.
+# Copyright 2020 The Cloudminds Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pybullet simulation of a Laikago robot."""
+"""Pybullet simulation of a Mini_Cheetah robot."""
 import math
 import re
 import numpy as np
@@ -21,7 +21,7 @@ from gym import spaces
 
 
 
-URDF_FILENAME = "laikago/laikago_toes_limits.urdf"
+URDF_FILENAME = "mini_cheetah/mini_cheetah.urdf"
 
 T_STEP = 0.001
 NUM_ACTION_REPEAT = 33
@@ -31,45 +31,45 @@ ENABLE_ENV_RANDOMIZER = False
 NUM_MOTORS = 12
 NUM_LEGS = 4
 MOTOR_NAMES = [
-    "FR_hip_motor_2_chassis_joint",
-    "FR_upper_leg_2_hip_motor_joint",
-    "FR_lower_leg_2_upper_leg_joint",
-    "FL_hip_motor_2_chassis_joint",
-    "FL_upper_leg_2_hip_motor_joint",
-    "FL_lower_leg_2_upper_leg_joint",
-    "RR_hip_motor_2_chassis_joint",
-    "RR_upper_leg_2_hip_motor_joint",
-    "RR_lower_leg_2_upper_leg_joint",
-    "RL_hip_motor_2_chassis_joint",
-    "RL_upper_leg_2_hip_motor_joint",
-    "RL_lower_leg_2_upper_leg_joint",
+    "torso_to_abduct_fl_j",
+    "abduct_fl_to_thigh_fl_j",
+    "thigh_fl_to_knee_fl_j",
+    "torso_to_abduct_hl_j",
+    "abduct_hl_to_thigh_hl_j",
+    "thigh_hl_to_knee_hl_j",
+    "torso_to_abduct_fr_j",
+    "abduct_fr_to_thigh_fr_j",
+    "thigh_fr_to_knee_fr_j",
+    "torso_to_abduct_hr_j",
+    "abduct_hr_to_thigh_hr_j",
+    "thigh_hr_to_knee_hr_j",
 ]
-PATTERN = [re.compile(r"\w+_chassis_\w+"), re.compile(r"\w+_hip_motor_\w+"),
-           re.compile(r"\w+_lower_leg_\w+"), re.compile(r"jtoe\d*")]
+PATTERN = [re.compile(r"torso_"), re.compile(r"abduct_"),
+           re.compile(r"thigh_"), re.compile(r"toe_")]
 
 INIT_RACK_POSITION = [0, 0, 1]
-INIT_POSITION = [0, 0, 0.48]
-INIT_EUL = [0.5, 0.5, 0.5, 0.5]
-JOINT_DIRECTIONS = np.array([-1, 1, 1, 1, 1, 1, -1, 1, 1, 1, 1, 1])
+INIT_POSITION = [0, 0, 0.28]
+INIT_EUL = [0.0, 0.0, 0.0, 1.0]
+JOINT_DIRECTIONS = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])  # to be done
 DOFS_PER_LEG = 3
-JOINT_OFFSETS = np.array([0.0, -0.6, 0.66] * 4)
+JOINT_OFFSETS = np.array([0.0, 0.0, 0.0] * 4)
 
 _DEFAULT_HIP_POSITIONS = (
-    (0.21, -0.1157, 0),
-    (0.21, 0.1157, 0),
-    (-0.21, -0.1157, 0),
-    (-0.21, 0.1157, 0),
+    (0.38, -0.1161, 0),
+    (0.38, 0.1161, 0),
+    (-0.38, -0.1161, 0),
+    (-0.38, 0.1161, 0),
 )
 
-ABDUCTION_P_GAIN = 220.0
-ABDUCTION_D_GAIN = 0.3
-HIP_P_GAIN = 220.0
-HIP_D_GAIN = 2.0
-KNEE_P_GAIN = 220.0
-KNEE_D_GAIN = 2.0
+ABDUCTION_P_GAIN = 80.0
+ABDUCTION_D_GAIN = 0.1
+HIP_P_GAIN = 80.0
+HIP_D_GAIN = 1.0
+KNEE_P_GAIN = 80.0
+KNEE_D_GAIN = 1.0
 
 # Bases on the readings from Laikago's default pose.
-INIT_MOTOR_ANGLES = np.array([0, 0.67, -1.25] * NUM_LEGS)
+INIT_MOTOR_ANGLES = np.array([0, -0.78, 1.74] * NUM_LEGS)
 
 # sensors = [
 #     sensor_wrappers.HistoricSensorWrapper(
