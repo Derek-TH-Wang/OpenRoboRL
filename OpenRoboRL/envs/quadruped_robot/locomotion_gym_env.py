@@ -24,13 +24,18 @@ import pybullet
 import pybullet_utils.bullet_client as bullet_client
 import pybullet_data as pd
 
-from envs.quadruped_robot.sensors import sensor
+from envs.quadruped_robot.robots import minitaur
 from envs.quadruped_robot.sensors import space_utils
+from envs.quadruped_robot.sensors import sensor
+from envs.quadruped_robot.sensors import environment_sensors
+from envs.quadruped_robot.sensors import sensor_wrappers
+from envs.quadruped_robot.sensors import robot_sensors
 
 
 _ACTION_EPS = 0.01
 _NUM_SIMULATION_ITERATION_STEPS = 300
 _LOG_BUFFER_LENGTH = 5000
+_NUM_MOTORS = 12
 
 class LocomotionGymEnv(gym.Env):
   """The gym environment for the locomotion tasks."""
@@ -41,10 +46,8 @@ class LocomotionGymEnv(gym.Env):
 
   def __init__(self,
                gym_config,
-               robot_class=None,
+               name_robot=None,
                num_robot=1,
-               env_sensors=None,
-               robot_sensors=None,
                task=None,
                env_randomizers=None):
     """Initializes the locomotion gym environment.
@@ -67,14 +70,10 @@ class LocomotionGymEnv(gym.Env):
     """
 
     self.seed()
+    self._name_robot = name_robot
     self._gym_config = gym_config
-    self._robot_class = robot_class
     self.num_robot = num_robot
-    self._robot_sensors = robot_sensors
 
-    self._sensors = env_sensors if env_sensors is not None else list()
-    if self._robot_class is None:
-      raise ValueError('robot_class cannot be None.')
 
     # A dictionary containing the objects in the world other than the robot.
     self._world_dict = {}
@@ -85,6 +84,14 @@ class LocomotionGymEnv(gym.Env):
     # This is a workaround due to the issue in b/130128505#comment5
     # if isinstance(self._task, sensor.Sensor):
     #   self._sensors.append(self._task)
+    self.sensors = [
+          [sensor_wrappers.HistoricSensorWrapper(
+              wrapped_sensor=robot_sensors.MotorAngleSensor(num_motors=_NUM_MOTORS), num_history=3),
+          sensor_wrappers.HistoricSensorWrapper(
+              wrapped_sensor=robot_sensors.IMUSensor(), num_history=3),
+          sensor_wrappers.HistoricSensorWrapper(
+              wrapped_sensor=environment_sensors.LastActionSensor(num_actions=_NUM_MOTORS), num_history=3)]
+      for _ in range(self.num_robot)]
 
     # Simulation related parameters.
     self._num_action_repeat = gym_config.simulation_parameters.num_action_repeat
@@ -117,21 +124,6 @@ class LocomotionGymEnv(gym.Env):
     if gym_config.simulation_parameters.egl_rendering:
       self._pybullet_client.loadPlugin('eglRendererPlugin')
 
-    # The action list contains the name of all actions.
-    self._action_list = []
-    action_upper_bound = []
-    action_lower_bound = []
-    action_config = robot_class[0].ACTION_CONFIG
-    for action in action_config:
-      self._action_list.append(action.name)
-      action_upper_bound.append(action.upper_bound)
-      action_lower_bound.append(action.lower_bound)
-
-    self.action_space = spaces.Box(
-        np.array(action_lower_bound),
-        np.array(action_upper_bound),
-        dtype=np.float32)
-
     # Set the default render options.
     self._camera_dist = gym_config.simulation_parameters.camera_distance
     self._camera_yaw = gym_config.simulation_parameters.camera_yaw
@@ -160,7 +152,7 @@ class LocomotionGymEnv(gym.Env):
 
   def all_sensors(self, robot):
     """Returns all robot and environmental sensors."""
-    return robot.GetAllSensors() + self._sensors
+    return robot.GetAllSensors()
 
   def sensor_by_name(self, robot, name):
     """Returns the sensor with the given name, or None if not exist."""
@@ -206,11 +198,9 @@ class LocomotionGymEnv(gym.Env):
       }
 
       # Rebuild the robot
-      self._robot = [self._robot_class[i](
-          pybullet_client=self._pybullet_client,
-          robot_index = i,
-          sensors=self._robot_sensors[i],
-          on_rack=self._on_rack) for i in range(self.num_robot)]
+      self._robot = [minitaur.Minitaur(name_robot=self._name_robot,
+                              pybullet_client=self._pybullet_client,
+                              robot_index=i, sensor=self.sensors[i]) for i in range(self.num_robot)]
 
     # Reset the pose of the robot.
     for i in range(self.num_robot):
@@ -218,6 +208,8 @@ class LocomotionGymEnv(gym.Env):
           reload_urdf=False,
           default_motor_angles=initial_motor_angles,
           reset_time=reset_duration)
+
+    self.action_space = self._robot[0].action_space
 
     self._pybullet_client.setPhysicsEngineParameter(enableConeFriction=0)
     self._env_step_counter = 0
@@ -302,7 +294,7 @@ class LocomotionGymEnv(gym.Env):
 
     for i in range(self.num_robot):
       self._robot[i].SetAct(action[i])
-    for i in range(self._robot[i].action_repeat):
+    for i in range(self._robot[0].action_repeat):
       for j in range(self.num_robot):
         self._robot[j].RobotStep(i)
       self._pybullet_client.stepSimulation()

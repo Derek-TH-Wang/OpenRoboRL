@@ -20,14 +20,11 @@ from envs.quadruped_robot.wrappers import observation_dictionary_to_array_wrappe
 from envs.quadruped_robot.wrappers import trajectory_generator_wrapper_env
 from envs.quadruped_robot.wrappers import simple_openloop
 from envs.quadruped_robot.task import imitation_task
-from envs.quadruped_robot.sensors import environment_sensors
-from envs.quadruped_robot.sensors import sensor_wrappers
-from envs.quadruped_robot.sensors import robot_sensors
 from envs.quadruped_robot.randomizer import controllable_env_randomizer_from_config
 from envs.quadruped_robot.robots import laikago
 
 
-def build_imitation_env(motion_files, num_robot, num_parallel_envs, mode,
+def build_imitation_env(robot, motion_files, num_robot, num_parallel_envs, mode,
                         enable_randomizer, enable_rendering):
   assert len(motion_files) > 0
 
@@ -38,14 +35,6 @@ def build_imitation_env(motion_files, num_robot, num_parallel_envs, mode,
   sim_params.enable_rendering = enable_rendering
 
   gym_config = locomotion_gym_config.LocomotionGymConfig(simulation_parameters=sim_params)
-
-  robot_class = [laikago.Laikago for _ in range(num_robot)]
-
-  sensors = [[
-      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.MotorAngleSensor(num_motors=laikago.NUM_MOTORS), num_history=3),
-      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=robot_sensors.IMUSensor(), num_history=3),
-      sensor_wrappers.HistoricSensorWrapper(wrapped_sensor=environment_sensors.LastActionSensor(num_actions=laikago.NUM_MOTORS), num_history=3)
-      ] for _ in range(num_robot)]
 
   task = [imitation_task.ImitationTask(ref_motion_filenames=motion_files,
                                       enable_cycle_sync=True,
@@ -59,8 +48,8 @@ def build_imitation_env(motion_files, num_robot, num_parallel_envs, mode,
     randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(verbose=False)
     randomizers.append(randomizer)
 
-  env = locomotion_gym_env.LocomotionGymEnv(gym_config=gym_config, robot_class=robot_class, num_robot = num_robot,
-                                            env_randomizers=randomizers, robot_sensors=sensors, task=task)
+  env = locomotion_gym_env.LocomotionGymEnv(gym_config=gym_config, name_robot=robot, num_robot = num_robot,
+                                            env_randomizers=randomizers, task=task)
 
   env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(env)
   env = trajectory_generator_wrapper_env.TrajectoryGeneratorWrapperEnv(env,

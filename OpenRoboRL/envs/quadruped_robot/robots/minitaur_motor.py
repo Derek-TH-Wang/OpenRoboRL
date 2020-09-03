@@ -13,54 +13,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""This file implements an accurate motor model."""
+"""Motor model for laikago."""
 
+import collections
 import numpy as np
 
 from envs.quadruped_robot.robots import robot_config
 
-VOLTAGE_CLIPPING = 50
-OBSERVED_TORQUE_LIMIT = 5.7
-MOTOR_VOLTAGE = 16.0
-MOTOR_RESISTANCE = 0.186
-MOTOR_TORQUE_CONSTANT = 0.0954
-MOTOR_VISCOUS_DAMPING = 0
-MOTOR_SPEED_LIMIT = MOTOR_VOLTAGE / (
-    MOTOR_VISCOUS_DAMPING + MOTOR_TORQUE_CONSTANT)
-NUM_MOTORS = 8
-MOTOR_POS_LB = 0.5
-MOTOR_POS_UB = 2.5
+NUM_MOTORS = 12
+
+MOTOR_COMMAND_DIMENSION = 5
+
+# These values represent the indices of each field in the motor command tuple
+POSITION_INDEX = 0
+POSITION_GAIN_INDEX = 1
+VELOCITY_INDEX = 2
+VELOCITY_GAIN_INDEX = 3
+TORQUE_INDEX = 4
+
+# The supported motor control modes.
+POSITION = 1
+TORQUE = 2
+HYBRID = 3
+PWM = 4
 
 
 class MotorModel(object):
-  """The accurate motor model, which is based on the physics of DC motors.
+  """A simple motor model for Laikago.
 
-  The motor model support two types of control: position control and torque
-  control. In position control mode, a desired motor angle is specified, and a
-  torque is computed based on the internal motor model. When the torque control
-  is specified, a pwm signal in the range of [-1.0, 1.0] is converted to the
-  torque.
+    When in POSITION mode, the torque is calculated according to the difference
+    between current and desired joint angle, as well as the joint velocity.
+    For more information about PD control, please refer to:
+    https://en.wikipedia.org/wiki/PID_controller.
 
-  The internal motor model takes the following factors into consideration:
-  pd gains, viscous friction, back-EMF voltage and current-torque profile.
+    The model supports a HYBRID mode in which each motor command can be a tuple
+    (desired_motor_angle, position_gain, desired_motor_velocity, velocity_gain,
+    torque).
+
   """
 
   def __init__(self,
-               kp=1.2,
-               kd=0,
+               kp=60,
+               kd=1,
                torque_limits=None,
                motor_control_mode=robot_config.MotorControlMode.POSITION):
     self._kp = kp
     self._kd = kd
     self._torque_limits = torque_limits
+    if torque_limits is not None:
+      if isinstance(torque_limits, (collections.Sequence, np.ndarray)):
+        self._torque_limits = np.asarray(torque_limits)
+      else:
+        self._torque_limits = np.full(NUM_MOTORS, torque_limits)
     self._motor_control_mode = motor_control_mode
-    self._resistance = MOTOR_RESISTANCE
-    self._voltage = MOTOR_VOLTAGE
-    self._torque_constant = MOTOR_TORQUE_CONSTANT
-    self._viscous_damping = MOTOR_VISCOUS_DAMPING
-    self._current_table = [0, 10, 20, 30, 40, 50, 60]
-    self._torque_table = [0, 1, 1.9, 2.45, 3.0, 3.25, 3.5]
-    self._strength_ratios = [1.0] * NUM_MOTORS
+    self._strength_ratios = np.full(NUM_MOTORS, 1)
 
   def set_strength_ratios(self, ratios):
     """Set the strength of each motors relative to the default value.
@@ -69,7 +75,7 @@ class MotorModel(object):
       ratios: The relative strength of motor output. A numpy array ranging from
         0.0 to 1.0.
     """
-    self._strength_ratios = np.array(ratios)
+    self._strength_ratios = ratios
 
   def set_motor_gains(self, kp, kd):
     """Set the gains of all motors.
@@ -85,16 +91,16 @@ class MotorModel(object):
     self._kd = kd
 
   def set_voltage(self, voltage):
-    self._voltage = voltage
+    pass
 
   def get_voltage(self):
-    return self._voltage
+    return 0.0
 
   def set_viscous_damping(self, viscous_damping):
-    self._viscous_damping = viscous_damping
+    pass
 
   def get_viscous_dampling(self):
-    return self._viscous_damping
+    return 0.0
 
   def convert_to_torque(self,
                         motor_commands,
@@ -102,7 +108,7 @@ class MotorModel(object):
                         motor_velocity,
                         true_motor_velocity,
                         motor_control_mode=None):
-    """Convert the commands (position control or pwm control) to torque.
+    """Convert the commands (position control or torque control) to torque.
 
     Args:
       motor_commands: The desired motor angle if the motor is in position
@@ -120,66 +126,49 @@ class MotorModel(object):
       actual_torque: The torque that needs to be applied to the motor.
       observed_torque: The torque observed by the sensor.
     """
+    del true_motor_velocity
     if not motor_control_mode:
       motor_control_mode = self._motor_control_mode
 
-    if (motor_control_mode is robot_config.MotorControlMode.TORQUE) or (
-        motor_control_mode is robot_config.MotorControlMode.HYBRID):
+    if motor_control_mode is robot_config.MotorControlMode.PWM:
       raise ValueError(
           "{} is not a supported motor control mode".format(motor_control_mode))
 
-    kp = self._kp
-    kd = self._kd
+    # No processing for motor torques
+    if motor_control_mode is robot_config.MotorControlMode.TORQUE:
+      assert len(motor_commands) == NUM_MOTORS
+      motor_torques = self._strength_ratios * motor_commands
+      return motor_torques, motor_torques
 
-    if motor_control_mode is robot_config.MotorControlMode.PWM:
-      # The following implements a safety controller that softly enforces the
-      # joint angles to remain within safe region: If PD controller targeting
-      # the positive (negative) joint limit outputs a negative (positive)
-      # signal, the corresponding joint violates the joint constraint, so
-      # we should add the PD output to motor_command to bring it back to the
-      # safe region.
-      pd_max = -1 * kp * (motor_angle - MOTOR_POS_UB) - kd / 2. * motor_velocity
-      pd_min = -1 * kp * (motor_angle - MOTOR_POS_LB) - kd / 2. * motor_velocity
-      pwm = motor_commands + np.minimum(pd_max, 0) + np.maximum(pd_min, 0)
-    else:
-      pwm = -1 * kp * (motor_angle - motor_commands) - kd * motor_velocity
-    pwm = np.clip(pwm, -1.0, 1.0)
-    return self._convert_to_torque_from_pwm(pwm, true_motor_velocity)
-
-  def _convert_to_torque_from_pwm(self, pwm, true_motor_velocity):
-    """Convert the pwm signal to torque.
-
-    Args:
-      pwm: The pulse width modulation.
-      true_motor_velocity: The true motor velocity at the current moment. It is
-        used to compute the back EMF voltage and the viscous damping.
-
-    Returns:
-      actual_torque: The torque that needs to be applied to the motor.
-      observed_torque: The torque observed by the sensor.
-    """
-    observed_torque = np.clip(
-        self._torque_constant *
-        (np.asarray(pwm) * self._voltage / self._resistance),
-        -OBSERVED_TORQUE_LIMIT, OBSERVED_TORQUE_LIMIT)
+    desired_motor_angles = None
+    desired_motor_velocities = None
+    kp = None
+    kd = None
+    additional_torques = np.full(NUM_MOTORS, 0)
+    if motor_control_mode is POSITION:
+      assert len(motor_commands) == NUM_MOTORS
+      kp = self._kp
+      kd = self._kd
+      desired_motor_angles = motor_commands
+      desired_motor_velocities = np.full(NUM_MOTORS, 0)
+    elif motor_control_mode is HYBRID:
+      # The input should be a 60 dimension vector
+      assert len(motor_commands) == MOTOR_COMMAND_DIMENSION * NUM_MOTORS
+      kp = motor_commands[POSITION_GAIN_INDEX::MOTOR_COMMAND_DIMENSION]
+      kd = motor_commands[VELOCITY_GAIN_INDEX::MOTOR_COMMAND_DIMENSION]
+      desired_motor_angles = motor_commands[
+          POSITION_INDEX::MOTOR_COMMAND_DIMENSION]
+      desired_motor_velocities = motor_commands[
+          VELOCITY_INDEX::MOTOR_COMMAND_DIMENSION]
+      additional_torques = motor_commands[TORQUE_INDEX::MOTOR_COMMAND_DIMENSION]
+    motor_torques = -1 * (kp * (motor_angle - desired_motor_angles)) - kd * (
+        motor_velocity - desired_motor_velocities) + additional_torques
+    motor_torques = self._strength_ratios * motor_torques
     if self._torque_limits is not None:
-      observed_torque = np.clip(observed_torque, -1.0 * self._torque_limits,
-                                self._torque_limits)
-
-    # Net voltage is clipped at 50V by diodes on the motor controller.
-    voltage_net = np.clip(
-        np.asarray(pwm) * self._voltage -
-        (self._torque_constant + self._viscous_damping) *
-        np.asarray(true_motor_velocity), -VOLTAGE_CLIPPING, VOLTAGE_CLIPPING)
-    current = voltage_net / self._resistance
-    current_sign = np.sign(current)
-    current_magnitude = np.absolute(current)
-    # Saturate torque based on empirical current relation.
-    actual_torque = np.interp(current_magnitude, self._current_table,
-                              self._torque_table)
-    actual_torque = np.multiply(current_sign, actual_torque)
-    actual_torque = np.multiply(self._strength_ratios, actual_torque)
-    if self._torque_limits is not None:
-      actual_torque = np.clip(actual_torque, -1.0 * self._torque_limits,
+      if len(self._torque_limits) != len(motor_torques):
+        raise ValueError(
+            "Torque limits dimension does not match the number of motors.")
+      motor_torques = np.clip(motor_torques, -1.0 * self._torque_limits,
                               self._torque_limits)
-    return actual_torque, observed_torque
+
+    return motor_torques, motor_torques

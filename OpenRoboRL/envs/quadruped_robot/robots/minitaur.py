@@ -22,40 +22,20 @@ import collections
 import copy
 import math
 import re
+import typing
 import numpy as np
 from envs.quadruped_robot.robots import minitaur_constants
 from envs.quadruped_robot.robots import minitaur_motor
 from envs.quadruped_robot.robots import robot_config
 from envs.quadruped_robot.robots import action_filter
-from envs.quadruped_robot.robots import kinematics
 
-INIT_POSITION = [0, 0, .2]
-INIT_RACK_POSITION = [0, 0, 1]
-INIT_ORIENTATION = [0, 0, 0, 1]
-KNEE_CONSTRAINT_POINT_RIGHT = [0, 0.005, 0.2]
-KNEE_CONSTRAINT_POINT_LEFT = [0, 0.01, 0.2]
 OVERHEAT_SHUTDOWN_TORQUE = 2.45
 OVERHEAT_SHUTDOWN_TIME = 1.0
-LEG_POSITION = ["front_left", "back_left", "front_right", "back_right"]
-MOTOR_NAMES = [
-    "motor_front_leftL_joint", "motor_front_leftR_joint",
-    "motor_back_leftL_joint", "motor_back_leftR_joint",
-    "motor_front_rightL_joint", "motor_front_rightR_joint",
-    "motor_back_rightL_joint", "motor_back_rightR_joint"
-]
-_CHASSIS_NAME_PATTERN = re.compile(r"chassis\D*center")
-_MOTOR_NAME_PATTERN = re.compile(r"motor\D*joint")
-_KNEE_NAME_PATTERN = re.compile(r"knee\D*")
-_BRACKET_NAME_PATTERN = re.compile(r"motor\D*_bracket_joint")
-_LEG_NAME_PATTERN1 = re.compile(r"hip\D*joint")
-_LEG_NAME_PATTERN2 = re.compile(r"hip\D*link")
-_LEG_NAME_PATTERN3 = re.compile(r"motor\D*link")
+MAX_MOTOR_ANGLE_CHANGE_PER_STEP = 0.2
 SENSOR_NOISE_STDDEV = (0.0, 0.0, 0.0, 0.0, 0.0)
-MINITAUR_DEFAULT_MOTOR_DIRECTIONS = (-1, -1, -1, -1, 1, 1, 1, 1)
-MINITAUR_DEFAULT_MOTOR_OFFSETS = (0, 0, 0, 0, 0, 0, 0, 0)
-MINITAUR_NUM_MOTORS = 8
 TWO_PI = 2 * math.pi
-MINITAUR_DOFS_PER_LEG = 2
+_NUM_SIMULATION_ITERATION_STEPS = 300
+_IDENTITY_ORIENTATION = (0, 0, 0, 1)
 
 def MapToMinusPiToPi(angles):
   """Maps a list of angles to [-pi, pi].
@@ -79,30 +59,7 @@ def MapToMinusPiToPi(angles):
 class Minitaur(object):
   """The minitaur class that simulates a quadruped robot from Ghost Robotics."""
 
-  def __init__(self,
-               pybullet_client,
-               robot_index = 0,
-               num_motors=MINITAUR_NUM_MOTORS,
-               dofs_per_leg=MINITAUR_DOFS_PER_LEG,
-               time_step=0.01,
-               action_repeat=1,
-               self_collision_enabled=False,
-               motor_control_mode=robot_config.MotorControlMode.POSITION,
-               motor_model_class=minitaur_motor.MotorModel,
-               motor_kp=1.0,
-               motor_kd=0.02,
-               motor_torque_limits=None,
-               pd_latency=0.0,
-               control_latency=0.0,
-               observation_noise_stdev=SENSOR_NOISE_STDDEV,
-               motor_overheat_protection=False,
-               motor_direction=MINITAUR_DEFAULT_MOTOR_DIRECTIONS,
-               motor_offset=MINITAUR_DEFAULT_MOTOR_OFFSETS,
-               on_rack=False,
-               reset_at_current_position=False,
-               sensors=None,
-               enable_action_interpolation=False,
-               enable_action_filter=False):
+  def __init__(self, name_robot, pybullet_client, robot_index=0, sensor=None):
     """Constructs a minitaur and reset it to the initial states.
 
     Args:
@@ -152,76 +109,86 @@ class Minitaur(object):
       enable_action_filter: Boolean specifying if a lowpass filter should be
         used to smooth actions.
     """
+    if name_robot == "laikago":
+        from envs.quadruped_robot.robots import laikago as robot
+    elif name_robot == "mini_cheetah":
+        from envs.quadruped_robot.robots import mini_cheetah as robot
+    else:
+        raise ValueError("wrong robot select")
+
+    self._action_repeat = robot.NUM_ACTION_REPEAT
+    self.time_step = robot.T_STEP
+    self._urdf_file = robot.URDF_FILENAME
+    self.num_motors = robot.NUM_MOTORS
+    self.name_motor = robot.MOTOR_NAMES
+    self.pattern = robot.PATTERN
+    self._init_pos = robot.INIT_POSITION
+    self._init_eul = robot.INIT_EUL
+    self._init_motor_angle = robot.INIT_MOTOR_ANGLES
+    self._motor_direction = robot.JOINT_DIRECTIONS
+    self._motor_offset = robot.JOINT_OFFSETS
+    self._control_latency = robot.CTRL_LATENCY
+    self._motor_kp = robot.motor_kp
+    self._motor_kd = robot.motor_kd
+    self._motor_control_mode = minitaur_motor.POSITION
+    self.action_space = robot.action_space
+    # self.observation_space = robot.observation_space
+
     self._robot_index = robot_index
-    self.num_motors = num_motors
-    self.num_legs = self.num_motors // dofs_per_leg
+    self.num_legs = self.num_motors // robot.DOFS_PER_LEG
     self._pybullet_client = pybullet_client
-    self._action_repeat = action_repeat
-    self._self_collision_enabled = self_collision_enabled
-    self._motor_direction = motor_direction
-    self._motor_offset = motor_offset
+    self._self_collision_enabled = False
     self._observed_motor_torques = np.zeros(self.num_motors)
     self._applied_motor_torques = np.zeros(self.num_motors)
     self._max_force = 3.5
-    self._pd_latency = pd_latency
-    self._control_latency = control_latency
-    self._observation_noise_stdev = observation_noise_stdev
+    self._pd_latency = 0.0
+    self._observation_noise_stdev = SENSOR_NOISE_STDDEV
     self._observation_history = collections.deque(maxlen=100)
     self._control_observation = []
     self._chassis_link_ids = [-1]
     self._leg_link_ids = []
     self._motor_link_ids = []
     self._foot_link_ids = []
-    self._motor_overheat_protection = motor_overheat_protection
-    self._on_rack = on_rack
-    self._reset_at_current_position = reset_at_current_position
-    self.SetAllSensors(sensors if sensors is not None else list())
+    self._motor_overheat_protection = False
+    self._on_rack = False
+    self._reset_at_current_position = False
+    # self._sensor = copy.deepcopy(robot.sensors)
+    self.SetAllSensors(sensor if sensor is not None else list())
     self._is_safe = True
-
-    self._enable_action_interpolation = enable_action_interpolation
-    self._enable_action_filter = enable_action_filter
+    self._motor_torque_limits = None
+    
+    self._enable_action_interpolation = True
+    self._enable_action_filter = True
     self._filter_action = None
     self._action = np.zeros(self.num_motors)
     self._last_action = np.zeros(self.num_motors)
-
-    if not motor_model_class:
-      raise ValueError("Must provide a motor model class!")
 
     if self._on_rack and self._reset_at_current_position:
       raise ValueError("on_rack and reset_at_current_position "
                        "cannot be enabled together")
 
-    if isinstance(motor_kp, (collections.Sequence, np.ndarray)):
-      self._motor_kps = np.asarray(motor_kp)
+    if isinstance(self._motor_kp, (collections.Sequence, np.ndarray)):
+      self._motor_kps = np.asarray(self._motor_kp)
     else:
-      self._motor_kps = np.full(num_motors, motor_kp)
+      self._motor_kps = np.full(self.num_motors, self._motor_kp)
 
-    if isinstance(motor_kd, (collections.Sequence, np.ndarray)):
-      self._motor_kds = np.asarray(motor_kd)
+    if isinstance(self._motor_kd, (collections.Sequence, np.ndarray)):
+      self._motor_kds = np.asarray(self._motor_kd)
     else:
-      self._motor_kds = np.full(num_motors, motor_kd)
+      self._motor_kds = np.full(self.num_motors, self._motor_kd)
 
-    if isinstance(motor_torque_limits, (collections.Sequence, np.ndarray)):
-      self._motor_torque_limits = np.asarray(motor_torque_limits)
-    elif motor_torque_limits is None:
-      self._motor_torque_limits = None
-    else:
-      self._motor_torque_limits = motor_torque_limits
-
-    self._motor_control_mode = motor_control_mode
-    self._motor_model = motor_model_class(
-        kp=motor_kp,
-        kd=motor_kd,
+    self._motor_model = minitaur_motor.MotorModel(
+        kp=self._motor_kp,
+        kd=self._motor_kd,
         torque_limits=self._motor_torque_limits,
-        motor_control_mode=motor_control_mode)
+        motor_control_mode=self._motor_control_mode)
 
-    self.time_step = time_step
     self._step_counter = 0
 
     # This also includes the time spent during the Reset motion.
     self._state_action_counter = 0
     _, self._init_orientation_inv = self._pybullet_client.invertTransform(
-        position=[0, 0, 0], orientation=self._GetDefaultInitOrientation())
+        position=[0, 0, 0], orientation=self.GetDefaultInitOrientation())
 
     if self._enable_action_filter:
       self._action_filter = self._BuildActionFilter()
@@ -326,36 +293,38 @@ class Minitaur(object):
     """
     num_joints = self._pybullet_client.getNumJoints(self.quadruped)
     self._chassis_link_ids = [-1]
-    # The self._leg_link_ids include both the upper and lower links of the leg.
     self._leg_link_ids = []
     self._motor_link_ids = []
+    self._knee_link_ids = []
     self._foot_link_ids = []
-    self._bracket_link_ids = []
+
     for i in range(num_joints):
       joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
       joint_name = joint_info[1].decode("UTF-8")
       joint_id = self._joint_name_to_id[joint_name]
-      if _CHASSIS_NAME_PATTERN.match(joint_name):
+      if self.pattern[0].match(joint_name):
         self._chassis_link_ids.append(joint_id)
-      elif _BRACKET_NAME_PATTERN.match(joint_name):
-        self._bracket_link_ids.append(joint_id)
-      elif _MOTOR_NAME_PATTERN.match(joint_name):
+      elif self.pattern[1].match(joint_name):
         self._motor_link_ids.append(joint_id)
-      elif _KNEE_NAME_PATTERN.match(joint_name):
+      # We either treat the lower leg or the toe as the foot link, depending on
+      # the urdf version used.
+      elif self.pattern[2].match(joint_name):
+        self._knee_link_ids.append(joint_id)
+      elif self.pattern[3].match(joint_name):
         self._foot_link_ids.append(joint_id)
-      elif (_LEG_NAME_PATTERN1.match(joint_name) or
-            _LEG_NAME_PATTERN2.match(joint_name) or
-            _LEG_NAME_PATTERN3.match(joint_name)):
-        self._leg_link_ids.append(joint_id)
       else:
         raise ValueError("Unknown category of joint %s" % joint_name)
 
+    self._leg_link_ids.extend(self._knee_link_ids)
     self._leg_link_ids.extend(self._foot_link_ids)
+    self._foot_link_ids.extend(self._knee_link_ids)
+
     self._chassis_link_ids.sort()
     self._motor_link_ids.sort()
     self._foot_link_ids.sort()
     self._leg_link_ids.sort()
-    self._bracket_link_ids.sort()
+
+    return
 
   def _RemoveDefaultJointDamping(self):
     num_joints = self._pybullet_client.getNumJoints(self.quadruped)
@@ -424,8 +393,8 @@ class Minitaur(object):
       self._LoadRobotURDF(self._robot_index)
       if self._on_rack:
         self.rack_constraint = (
-            self._CreateRackConstraint(self._GetDefaultInitPosition(),
-                                       self._GetDefaultInitOrientation()))
+            self._CreateRackConstraint(self.GetDefaultInitPosition(),
+                                       self.GetDefaultInitOrientation()))
       self._BuildJointNameToIdDict()
       self._BuildUrdfIds()
       self._RemoveDefaultJointDamping()
@@ -434,9 +403,9 @@ class Minitaur(object):
       self._RecordInertiaInfoFromURDF()
       self.ResetPose(add_constraint=True)
     else:
-      pos = copy.deepcopy(self._GetDefaultInitPosition())
+      pos = copy.deepcopy(self.GetDefaultInitPosition())
       pos[1] += self._robot_index
-      ori = self._GetDefaultInitOrientation()
+      ori = self.GetDefaultInitOrientation()
       self._pybullet_client.resetBasePositionAndOrientation(
           self.quadruped, pos, ori)
       self._pybullet_client.resetBaseVelocity(self.quadruped, [0, 0, 0],
@@ -460,18 +429,17 @@ class Minitaur(object):
     return
 
   def _LoadRobotURDF(self, robot_index=0):
-    """Loads the URDF file for the robot."""
-    urdf_file = self.GetURDFFile()
+    laikago_urdf_path = self.GetURDFFile()
+    pos = copy.deepcopy(self.GetDefaultInitPosition())
+    pos[1] += robot_index
+    ori = self.GetDefaultInitOrientation()
     if self._self_collision_enabled:
       self.quadruped = self._pybullet_client.loadURDF(
-          urdf_file,
-          self._GetDefaultInitPosition(),
-          self._GetDefaultInitOrientation(),
+          laikago_urdf_path, pos, ori,
           flags=self._pybullet_client.URDF_USE_SELF_COLLISION)
     else:
       self.quadruped = self._pybullet_client.loadURDF(
-          urdf_file, self._GetDefaultInitPosition(),
-          self._GetDefaultInitOrientation())
+          laikago_urdf_path, pos, ori)
 
   def _SetMotorTorqueById(self, motor_id, torque):
     self._pybullet_client.setJointMotorControl2(
@@ -492,7 +460,7 @@ class Minitaur(object):
                                    desired_angle)
 
   def GetURDFFile(self):
-    return None
+    return self._urdf_file
 
   def ResetPose(self, add_constraint):
     """Reset the pose of the minitaur.
@@ -500,79 +468,20 @@ class Minitaur(object):
     Args:
       add_constraint: Whether to add a constraint at the joints of two feet.
     """
-    for i in range(self.num_legs):
-      self._ResetPoseForLeg(i, add_constraint)
+    del add_constraint
+    for name in self._joint_name_to_id:
+        joint_id = self._joint_name_to_id[name]
+        self.pybullet_client.setJointMotorControl2(
+            bodyIndex=self.quadruped,
+            jointIndex=(joint_id),
+            controlMode=self.pybullet_client.VELOCITY_CONTROL,
+            targetVelocity=0,
+            force=0)
+    for name, i in zip(self.name_motor, range(len(self.name_motor))):
+        angle = self._init_motor_angle[i] + self._motor_offset[i]
+        self.pybullet_client.resetJointState(
+            self.quadruped, self._joint_name_to_id[name], angle, targetVelocity=0)
 
-  def _ResetPoseForLeg(self, leg_id, add_constraint):
-    """Reset the initial pose for the leg.
-
-    Args:
-      leg_id: It should be 0, 1, 2, or 3, which represents the leg at
-        front_left, back_left, front_right and back_right.
-      add_constraint: Whether to add a constraint at the joints of two feet.
-    """
-    knee_friction_force = 0
-    half_pi = math.pi / 2.0
-    knee_angle = -2.1834
-
-    leg_position = LEG_POSITION[leg_id]
-    self._pybullet_client.resetJointState(
-        self.quadruped,
-        self._joint_name_to_id["motor_" + leg_position + "L_joint"],
-        self._motor_direction[2 * leg_id] * half_pi,
-        targetVelocity=0)
-    self._pybullet_client.resetJointState(
-        self.quadruped,
-        self._joint_name_to_id["knee_" + leg_position + "L_link"],
-        self._motor_direction[2 * leg_id] * knee_angle,
-        targetVelocity=0)
-    self._pybullet_client.resetJointState(
-        self.quadruped,
-        self._joint_name_to_id["motor_" + leg_position + "R_joint"],
-        self._motor_direction[2 * leg_id + 1] * half_pi,
-        targetVelocity=0)
-    self._pybullet_client.resetJointState(
-        self.quadruped,
-        self._joint_name_to_id["knee_" + leg_position + "R_link"],
-        self._motor_direction[2 * leg_id + 1] * knee_angle,
-        targetVelocity=0)
-    if add_constraint:
-      self._pybullet_client.createConstraint(
-          self.quadruped,
-          self._joint_name_to_id["knee_" + leg_position + "R_link"],
-          self.quadruped,
-          self._joint_name_to_id["knee_" + leg_position + "L_link"],
-          self._pybullet_client.JOINT_POINT2POINT, [0, 0, 0],
-          KNEE_CONSTRAINT_POINT_RIGHT, KNEE_CONSTRAINT_POINT_LEFT)
-
-    # Disable the default motor in pybullet.
-    self._pybullet_client.setJointMotorControl2(
-        bodyIndex=self.quadruped,
-        jointIndex=(self._joint_name_to_id["motor_" + leg_position +
-                                           "L_joint"]),
-        controlMode=self._pybullet_client.VELOCITY_CONTROL,
-        targetVelocity=0,
-        force=knee_friction_force)
-    self._pybullet_client.setJointMotorControl2(
-        bodyIndex=self.quadruped,
-        jointIndex=(self._joint_name_to_id["motor_" + leg_position +
-                                           "R_joint"]),
-        controlMode=self._pybullet_client.VELOCITY_CONTROL,
-        targetVelocity=0,
-        force=knee_friction_force)
-
-    self._pybullet_client.setJointMotorControl2(
-        bodyIndex=self.quadruped,
-        jointIndex=(self._joint_name_to_id["knee_" + leg_position + "L_link"]),
-        controlMode=self._pybullet_client.VELOCITY_CONTROL,
-        targetVelocity=0,
-        force=knee_friction_force)
-    self._pybullet_client.setJointMotorControl2(
-        bodyIndex=self.quadruped,
-        jointIndex=(self._joint_name_to_id["knee_" + leg_position + "R_link"]),
-        controlMode=self._pybullet_client.VELOCITY_CONTROL,
-        targetVelocity=0,
-        force=knee_friction_force)
 
   def GetBasePosition(self):
     """Get the position of minitaur's base.
@@ -618,8 +527,7 @@ class Minitaur(object):
     return roll_pitch_yaw
 
   def GetHipPositionsInBaseFrame(self):
-    """Get the hip joint positions of the robot within its base frame."""
-    raise NotImplementedError("Not implemented for Minitaur.")
+    return _DEFAULT_HIP_POSITIONS
 
   def ComputeMotorAnglesFromFootLocalPosition(self, leg_id,
                                               foot_local_position):
@@ -643,7 +551,7 @@ class Minitaur(object):
                          motors_per_leg)
     ]
 
-    joint_angles = kinematics.joint_angles_from_link_position(
+    joint_angles = self.joint_angles_from_link_position(
         robot=self,
         link_position=foot_local_position,
         link_id=toe_id,
@@ -664,7 +572,7 @@ class Minitaur(object):
     """Compute the Jacobian for a given leg."""
     # Does not work for Minitaur which has the four bar mechanism for now.
     assert len(self._foot_link_ids) == self.num_legs
-    return kinematics.compute_jacobian(
+    return self.compute_jacobian(
         robot=self,
         link_id=self._foot_link_ids[leg_id],
     )
@@ -684,29 +592,20 @@ class Minitaur(object):
     return motor_torques
 
   def GetFootContacts(self):
-    """Get minitaur's foot contact situation with the ground.
+    all_contacts = self._pybullet_client.getContactPoints(bodyA=self.quadruped)
 
-    Returns:
-      A list of 4 booleans. The ith boolean is True if leg i is in contact with
-      ground.
-    """
-    contacts = []
-    for leg_idx in range(MINITAUR_NUM_MOTORS // 2):
-      link_id_1 = self._foot_link_ids[leg_idx * 2]
-      link_id_2 = self._foot_link_ids[leg_idx * 2 + 1]
-      contact_1 = bool(
-          self._pybullet_client.getContactPoints(
-              bodyA=0,
-              bodyB=self.quadruped,
-              linkIndexA=-1,
-              linkIndexB=link_id_1))
-      contact_2 = bool(
-          self._pybullet_client.getContactPoints(
-              bodyA=0,
-              bodyB=self.quadruped,
-              linkIndexA=-1,
-              linkIndexB=link_id_2))
-      contacts.append(contact_1 or contact_2)
+    contacts = [False, False, False, False]
+    for contact in all_contacts:
+      # Ignore self contacts
+      if contact[_BODY_B_FIELD_NUMBER] == self.quadruped:
+        continue
+      try:
+        toe_link_index = self._foot_link_ids.index(
+            contact[_LINK_A_FIELD_NUMBER])
+        contacts[toe_link_index] = True
+      except ValueError:
+        continue
+
     return contacts
 
   def GetFootPositionsInBaseFrame(self):
@@ -715,11 +614,108 @@ class Minitaur(object):
     foot_positions = []
     for foot_id in self.GetFootLinkIDs():
       foot_positions.append(
-          kinematics.link_position_in_base_frame(
+          self.link_position_in_base_frame(
               robot=self,
               link_id=foot_id,
           ))
     return np.array(foot_positions)
+
+
+  def joint_angles_from_link_position(
+      self,
+      robot: typing.Any,
+      link_position: typing.Sequence[float],
+      link_id: int,
+      joint_ids: typing.Sequence[int],
+      base_translation: typing.Sequence[float] = (0, 0, 0),
+      base_rotation: typing.Sequence[float] = (0, 0, 0, 1)):
+    """Uses Inverse Kinematics to calculate joint angles.
+
+    Args:
+      robot: A robot instance.
+      link_position: The (x, y, z) of the link in the body frame. This local frame
+        is transformed relative to the COM frame using a given translation and
+        rotation.
+      link_id: The link id as returned from loadURDF.
+      joint_ids: The positional index of the joints. This can be different from
+        the joint unique ids.
+      base_translation: Additional base translation.
+      base_rotation: Additional base rotation.
+
+    Returns:
+      A list of joint angles.
+    """
+    # Projects to local frame.
+    base_position, base_orientation = robot.GetBasePosition(
+    ), robot.GetBaseOrientation()
+    base_position, base_orientation = self._pybullet_client.multiplyTransforms(
+        base_position, base_orientation, base_translation, base_rotation)
+
+    # Projects to world space.
+    world_link_pos, _ = self._pybullet_client.multiplyTransforms(
+        base_position, base_orientation, link_position, _IDENTITY_ORIENTATION)
+    ik_solver = 0
+    all_joint_angles = self._pybullet_client.calculateInverseKinematics(
+        robot.quadruped, link_id, world_link_pos, solver=ik_solver)
+
+    # Extract the relevant joint angles.
+    joint_angles = [all_joint_angles[i] for i in joint_ids]
+    return joint_angles
+
+
+  def link_position_in_base_frame(
+      self,
+      robot: typing.Any,
+      link_id: int,
+  ):
+    """Computes the link's local position in the robot frame.
+
+    Args:
+      robot: A robot instance.
+      link_id: The link to calculate its relative position.
+
+    Returns:
+      The relative position of the link.
+    """
+    base_position, base_orientation = robot.GetBasePosition(
+    ), robot.GetBaseOrientation()
+    inverse_translation, inverse_rotation = self._pybullet_client.invertTransform(
+        base_position, base_orientation)
+
+    link_state = self._pybullet_client.getLinkState(robot.quadruped, link_id)
+    link_position = link_state[0]
+    link_local_position, _ = self._pybullet_client.multiplyTransforms(
+        inverse_translation, inverse_rotation, link_position, (0, 0, 0, 1))
+
+    return np.array(link_local_position)
+
+
+  def compute_jacobian(
+      self,
+      robot: typing.Any,
+      link_id: int,
+  ):
+    """Computes the Jacobian matrix for the given link.
+
+    Args:
+      robot: A robot instance.
+      link_id: The link id as returned from loadURDF.
+
+    Returns:
+      The 3 x N transposed Jacobian matrix. where N is the total DoFs of the
+      robot. For a quadruped, the first 6 columns of the matrix corresponds to
+      the CoM translation and rotation. The columns corresponds to a leg can be
+      extracted with indices [6 + leg_id * 3: 6 + leg_id * 3 + 3].
+    """
+
+    all_joint_angles = [state[0] for state in robot.joint_states]
+    zero_vec = [0] * len(all_joint_angles)
+    jv, _ = self._pybullet_client.calculateJacobian(robot.quadruped, link_id,
+                                                    (0, 0, 0), all_joint_angles,
+                                                    zero_vec, zero_vec)
+    jacobian = np.array(jv)
+    assert jacobian.shape[0] == 3
+    return jacobian
 
   def GetTrueMotorAngles(self):
     """Gets the eight motor angles at the current moment, mapped to [-pi, pi].
@@ -883,6 +879,25 @@ class Minitaur(object):
             OVERHEAT_SHUTDOWN_TIME / self.time_step):
           self._motor_enabled_list[i] = False
 
+  def _ClipMotorCommands(self, motor_commands):
+    """Clips motor commands.
+
+    Args:
+      motor_commands: np.array. Can be motor angles, torques, hybrid commands,
+        or motor pwms (for Minitaur only).
+
+    Returns:
+      Clipped motor commands.
+    """
+
+    # clamp the motor command by the joint limit, in case weired things happens
+    max_angle_change = MAX_MOTOR_ANGLE_CHANGE_PER_STEP
+    current_motor_angles = self.GetMotorAngles()
+    motor_commands = np.clip(motor_commands,
+                             current_motor_angles - max_angle_change,
+                             current_motor_angles + max_angle_change)
+    return motor_commands
+
   def ApplyAction(self, motor_commands, motor_control_mode=None):
     """Apply the motor commands using the motor model.
 
@@ -891,6 +906,8 @@ class Minitaur(object):
         or motor pwms (for Minitaur only).
       motor_control_mode: A MotorControlMode enum.
     """
+    motor_commands = self._ClipMotorCommands(motor_commands)
+
     self.last_action_time = self._state_action_counter * self.time_step
     control_mode = motor_control_mode
     if control_mode is None:
@@ -1277,35 +1294,15 @@ class Minitaur(object):
     self._action_repeat = action_repeat
 
   def _GetMotorNames(self):
-    return MOTOR_NAMES
+    return self.name_motor
 
-  def _GetDefaultInitPosition(self):
-    """Returns the init position of the robot.
-
-    It can be either 1) origin (INIT_POSITION), 2) origin with a rack
-    (INIT_RACK_POSITION), or 3) the previous position.
-    """
-    # If we want continuous resetting and is not the first episode.
-    if self._reset_at_current_position and self._observation_history:
-      x, y, _ = self.GetBasePosition()
-      _, _, z = INIT_POSITION
-      return [x, y, z]
-
-    if self._on_rack:
-      return INIT_RACK_POSITION
-    else:
-      return INIT_POSITION
-
-  def _GetDefaultInitOrientation(self):
-    """Returns the init position of the robot.
-
-    It can be either 1) INIT_ORIENTATION or 2) the previous rotation in yaw.
-    """
-    # If we want continuous resetting and is not the first episode.
-    if self._reset_at_current_position and self._observation_history:
-      _, _, yaw = self.GetBaseRollPitchYaw()
-      return self._pybullet_client.getQuaternionFromEuler([0.0, 0.0, yaw])
-    return INIT_ORIENTATION
+  def GetDefaultInitOrientation(self):
+    # The Laikago URDF assumes the initial pose of heading towards z axis,
+    # and belly towards y axis. The following transformation is to transform
+    # the Laikago initial orientation to our commonly used orientation: heading
+    # towards -x direction, and z axis is the up direction.
+    init_orientation = self.pybullet_client.getQuaternionFromEuler([math.pi / 2.0, 0, math.pi / 2.0])
+    return init_orientation
 
   @property
   def chassis_link_ids(self):
@@ -1399,6 +1396,29 @@ class Minitaur(object):
     filtered_action = self._action_filter.filter(action)
     return filtered_action
 
+  def GetDefaultInitPosition(self):
+    """Returns the init position of the robot.
+
+    It can be either 1) origin (INIT_POSITION), 2) origin with a rack
+    (INIT_RACK_POSITION), or 3) the previous position.
+    """
+    if self._on_rack:
+        return self._init_rack_pos
+    else:
+        return self._init_pos
+
+  def GetDefaultInitOrientation(self):
+    """Returns the init position of the robot.
+
+    It can be either 1) INIT_ORIENTATION or 2) the previous rotation in yaw.
+    """
+    return self._init_eul
+
+  def GetDefaultInitJointPose(self):
+    """Get default initial joint pose."""
+    joint_pose = (self._init_motor_angle + self._motor_offset) * self._motor_direction
+    return joint_pose
+  
   @property
   def pybullet_client(self):
     return self._pybullet_client
