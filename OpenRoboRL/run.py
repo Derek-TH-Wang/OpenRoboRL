@@ -26,7 +26,6 @@ import agents.imitation_policies as imitation_policies
 import agents.ppo_imitation as ppo_imitation
 from envs.quadruped_robot import locomotion_gym_env
 from envs.quadruped_robot import imitation_wrapper_env
-from envs.quadruped_robot import observation_dictionary_to_array_wrapper
 from envs.quadruped_robot.task import imitation_task
 from envs.utilities.randomizer import controllable_env_randomizer_from_config
 
@@ -73,9 +72,6 @@ def build_env(robot, motion_files, num_robot, num_parallel_envs, mode,
 
     env = locomotion_gym_env.LocomotionGymEnv(name_robot=robot, num_robot=num_robot,
                                               env_randomizers=randomizers, task=task)
-
-    env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(
-        env)
 
     if mode == "test":
         curriculum_episode_length_start = curriculum_episode_length_end

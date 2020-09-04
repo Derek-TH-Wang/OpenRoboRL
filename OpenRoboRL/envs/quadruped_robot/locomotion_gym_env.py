@@ -149,6 +149,7 @@ class LocomotionGymEnv(gym.Env):
           np.array(s.get_upper_bound()),
           dtype=np.float32)
     self.observation_space = spaces.Dict(gym_space_dict)
+    self.observation_space = self._flatten_observation_spaces(self.observation_space)
 
   def close(self):
     if hasattr(self, '_robot') and self._robot:
@@ -169,6 +170,74 @@ class LocomotionGymEnv(gym.Env):
       if sensor_.get_name() == name:
         return sensor_
     return None
+
+  def _flatten_observation_spaces(self, observation_spaces, observation_excluded=()):
+    """Flattens the dictionary observation spaces to gym.spaces.Box.
+
+    If observation_excluded is passed in, it will still return a dictionary,
+    which includes all the (key, observation_spaces[key]) in observation_excluded,
+    and ('other': the flattened Box space).
+
+    Args:
+      observation_spaces: A dictionary of all the observation spaces.
+      observation_excluded: A list/tuple of all the keys of the observations to be
+        ignored during flattening.
+
+    Returns:
+      A box space or a dictionary of observation spaces based on whether
+        observation_excluded is empty.
+    """
+    if not isinstance(observation_excluded, (list, tuple)):
+      observation_excluded = [observation_excluded]
+    lower_bound = []
+    upper_bound = []
+    for key, value in observation_spaces.spaces.items():
+      if key not in observation_excluded:
+        lower_bound.append(np.asarray(value.low).flatten())
+        upper_bound.append(np.asarray(value.high).flatten())
+    lower_bound = np.concatenate(lower_bound)
+    upper_bound = np.concatenate(upper_bound)
+    observation_space = spaces.Box(
+        np.array(lower_bound), np.array(upper_bound), dtype=np.float32)
+    if not observation_excluded:
+      return observation_space
+    else:
+      observation_spaces_after_flatten = {"other": observation_space}
+      for key in observation_excluded:
+        observation_spaces_after_flatten[key] = observation_spaces[key]
+      return spaces.Dict(observation_spaces_after_flatten)
+
+  def _flatten_observation(self, observation_dict, observation_excluded=()):
+    """Flattens the observation dictionary to an array.
+
+    If observation_excluded is passed in, it will still return a dictionary,
+    which includes all the (key, observation_dict[key]) in observation_excluded,
+    and ('other': the flattened array).
+
+    Args:
+      observation_dict: A dictionary of all the observations.
+      observation_excluded: A list/tuple of all the keys of the observations to be
+        ignored during flattening.
+
+    Returns:
+      An array or a dictionary of observations based on whether
+        observation_excluded is empty.
+    """
+    if not isinstance(observation_excluded, (list, tuple)):
+      observation_excluded = [observation_excluded]
+
+    num_robot = len(observation_dict)
+    flat_observations = [0 for _ in range(num_robot)]
+    for i in range(num_robot):
+      observations = []
+      for key, value in observation_dict[i].items():
+        if key not in observation_excluded:
+          observations.append(np.asarray(value).flatten())
+      flat_observations[i] = np.concatenate(observations)
+    if not observation_excluded:
+      return flat_observations
+    else:
+      raise ValueError('flatten_observations observation_excluded is not none') 
 
   def reset(self,
             initial_motor_angles=None,
@@ -245,6 +314,7 @@ class LocomotionGymEnv(gym.Env):
         env_randomizer.randomize_env(self._robot[i])
 
     obs = [self._get_observation(self._robot[i]) for i in range(self.num_robot)]
+    obs = self._flatten_observation(obs)
 
     return obs
 
@@ -331,6 +401,8 @@ class LocomotionGymEnv(gym.Env):
         self._robot[i].Terminate()
       
       obs[i] = self._get_observation(self._robot[i])
+
+    obs = self._flatten_observation(obs)
 
     return obs, reward, done, {}
 

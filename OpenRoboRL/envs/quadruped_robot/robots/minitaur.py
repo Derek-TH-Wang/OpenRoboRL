@@ -128,7 +128,6 @@ class Minitaur(object):
     self._motor_kd = robot.motor_kd
     self._motor_control_mode = minitaur_motor.POSITION
     self.action_space = robot.action_space
-    # self.observation_space = robot.observation_space
 
     self._robot_index = robot_index
     self.num_legs = self.num_motors // robot.DOFS_PER_LEG
