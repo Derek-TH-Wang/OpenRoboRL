@@ -19,8 +19,8 @@ imitation_learning_minicheetah:
 
   robot: "mini_cheetah"
   seed: 0
-  num_robot: 1
-  mode: "train"
+  num_robot: 2
+  mode: "test"
   output_dir: "output"
   num_test_episodes: 100          # test times
   total_timesteps: 200000000      # train times

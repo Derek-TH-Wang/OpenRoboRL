@@ -178,6 +178,8 @@ def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--task", dest="task",
                             type=str, default="imitation_learning_laikago")
+    # arg_parser.add_argument("--task", dest="task",
+    #                         type=str, default="imitation_learning_minicheetah")
     args = arg_parser.parse_args()
 
     with open('OpenRoboRL/config/training_param.yaml') as f:
@@ -186,7 +188,7 @@ def main():
             training_params = training_params_dict[args.task]
         else:
             raise ValueError(
-                "Hyperparameters not found for pybullet_sim_config.yaml")
+                "task not found for pybullet_sim_config.yaml")
 
     num_procs = MPI.COMM_WORLD.Get_size()
     os.environ["CUDA_VISIBLE_DEVICES"] = '-1'

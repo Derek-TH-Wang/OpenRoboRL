@@ -21,6 +21,14 @@ To running the example, run the following command:
 
 - `--task` can be "imitation_learning_laikago" or "imitation_learning_minicheetah" for now
 
+For parallel training with MPI run:
+
+``mpiexec -n 8 python3 OpenRoboRL/run.py --task imitation_learning_laikago``
+
+- `-n` is the number of parallel.
+
+Enables visualization or not, there is "enable_rendering" param in `pybullet_sim_param.yaml` can be set.
+
 ## Change Params
 
 There are two yaml file in `OpenRoboRL/config` folder, `pybullet_sim_param.yaml` is the simulation params, which is not recommended to modify, `training_param.yaml` is the training params, the following is the meaning of some parameters:
@@ -31,11 +39,3 @@ There are two yaml file in `OpenRoboRL/config` folder, `pybullet_sim_param.yaml`
 - `model_file` specifies the pre-trained model that the robot is to imitate. `OpenRoboRL/learning/data/policies/` contains different model.
 - `int_save_freq` specifies the frequency for saving intermediate policies every n policy steps.
 - the trained model and logs will be written to `output/`.
-
-For parallel training with MPI run:
-
-``mpiexec -n 8 python3 OpenRoboRL/run.py --task imitation_learning_laikago``
-
-- `-n` is the number of parallel.
-
-Enables visualization or not, there is "enable_rendering" param in `pybullet_sim_param.yaml` can be set.
