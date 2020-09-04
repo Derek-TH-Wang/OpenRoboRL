@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """This file implements the locomotion gym env."""
+import yaml
 import collections
 import time
 import gym
@@ -44,7 +45,6 @@ class LocomotionGymEnv(gym.Env):
   }
 
   def __init__(self,
-               sim_params,
                name_robot=None,
                num_robot=1,
                task=None,
@@ -70,9 +70,14 @@ class LocomotionGymEnv(gym.Env):
 
     self.seed()
     self._name_robot = name_robot
-    self._sim_params = sim_params
     self.num_robot = num_robot
 
+    with open('OpenRoboRL/config/pybullet_sim_param.yaml') as f:
+        sim_params_dict = yaml.safe_load(f)
+        if "quadruped_robot" in list(sim_params_dict.keys()):
+            self._sim_params = sim_params_dict["quadruped_robot"]
+        else:
+            raise ValueError("Hyperparameters not found for pybullet_sim_config.yaml")
 
     # A dictionary containing the objects in the world other than the robot.
     self._world_dict = {}
@@ -93,17 +98,17 @@ class LocomotionGymEnv(gym.Env):
       for _ in range(self.num_robot)]
 
     # Simulation related parameters.
-    self._num_action_repeat = self._sim_params.num_action_repeat
-    self._on_rack = self._sim_params.robot_on_rack
+    self._num_action_repeat = self._sim_params["num_action_repeat"]
+    self._on_rack = self._sim_params["robot_on_rack"]
     if self._num_action_repeat < 1:
       raise ValueError('number of action repeats should be at least 1.')
-    self._sim_time_step = self._sim_params.sim_time_step_s
+    self._sim_time_step = self._sim_params["sim_time_step_s"]
     self._env_time_step = self._num_action_repeat * self._sim_time_step
     self._env_step_counter = 0
 
     self._num_bullet_solver_iterations = int(_NUM_SIMULATION_ITERATION_STEPS /
                                              self._num_action_repeat)
-    self._is_render = self._sim_params.enable_rendering
+    self._is_render = self._sim_params["enable_rendering"]
 
     # The wall-clock time at which the last frame is rendered.
     self._last_frame_time = 0.0
@@ -114,26 +119,26 @@ class LocomotionGymEnv(gym.Env):
           connection_mode=pybullet.GUI)
       pybullet.configureDebugVisualizer(
           pybullet.COV_ENABLE_GUI,
-          self._sim_params.enable_rendering_gui)
-      self._show_reference_id = pybullet.addUserDebugParameter("show reference",0,1,self._sim_params.draw_ref_model_alpha)
+          self._sim_params["enable_rendering_gui"])
+      self._show_reference_id = pybullet.addUserDebugParameter("show reference",0,1,self._sim_params["draw_ref_model_alpha"])
       self._delay_id = pybullet.addUserDebugParameter("delay",0,0.3,0)
     else:
       self._pybullet_client = bullet_client.BulletClient(connection_mode=pybullet.DIRECT)
     self._pybullet_client.setAdditionalSearchPath(pd.getDataPath())
-    if self._sim_params.egl_rendering:
+    if self._sim_params["egl_rendering"]:
       self._pybullet_client.loadPlugin('eglRendererPlugin')
 
     # Set the default render options.
-    self._camera_dist = self._sim_params.camera_distance
-    self._camera_yaw = self._sim_params.camera_yaw
-    self._camera_pitch = self._sim_params.camera_pitch
-    self._render_width = self._sim_params.render_width
-    self._render_height = self._sim_params.render_height
+    self._camera_dist = self._sim_params["camera_distance"]
+    self._camera_yaw = self._sim_params["camera_yaw"]
+    self._camera_pitch = self._sim_params["camera_pitch"]
+    self._render_width = self._sim_params["render_width"]
+    self._render_height = self._sim_params["render_height"]
 
     self._hard_reset = True
     self.reset()
 
-    self._hard_reset = self._sim_params.enable_hard_reset
+    self._hard_reset = self._sim_params["enable_hard_reset"]
 
     # Construct the observation space from the list of sensors. Note that we
     # will reconstruct the observation_space after the robot is created.

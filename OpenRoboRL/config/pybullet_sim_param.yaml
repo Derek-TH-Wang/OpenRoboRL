@@ -1,0 +1,15 @@
+quadruped_robot:
+  
+  enable_rendering: True
+  sim_time_step_s: 0.001
+  num_action_repeat: 33
+  enable_hard_reset: False
+  enable_rendering_gui: True
+  robot_on_rack: False
+  camera_distance: 1.0
+  camera_yaw: 0
+  camera_pitch: -30
+  render_width: 480
+  render_height: 360
+  egl_rendering: False
+  draw_ref_model_alpha: 0.5

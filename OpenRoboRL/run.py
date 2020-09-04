@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import yaml
 import argparse
 from mpi4py import MPI
 import numpy as np
@@ -21,9 +22,13 @@ import random
 import tensorflow as tf
 import time
 
-import envs.quadruped_robot.env_builder as env_builder
 import agents.imitation_policies as imitation_policies
 import agents.ppo_imitation as ppo_imitation
+from envs.quadruped_robot import locomotion_gym_env
+from envs.quadruped_robot import imitation_wrapper_env
+from envs.quadruped_robot import observation_dictionary_to_array_wrapper
+from envs.quadruped_robot.task import imitation_task
+from envs.utilities.randomizer import controllable_env_randomizer_from_config
 
 from stable_baselines.common.callbacks import CheckpointCallback
 
@@ -32,162 +37,191 @@ OPTIM_BATCHSIZE = 256
 
 ENABLE_ENV_RANDOMIZER = True
 
+
 def set_rand_seed(seed=None):
-  if seed is None:
-    seed = int(time.time())
+    if seed is None:
+        seed = int(time.time())
 
-  seed += 97 * MPI.COMM_WORLD.Get_rank()
+    seed += 97 * MPI.COMM_WORLD.Get_rank()
 
-  tf.set_random_seed(seed)
-  np.random.seed(seed)
-  random.seed(seed)
+    tf.set_random_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
-  return
+    return
+
+
+def build_env(robot, motion_files, num_robot, num_parallel_envs, mode,
+              enable_randomizer):
+    assert len(motion_files) > 0
+
+    curriculum_episode_length_start = 20
+    curriculum_episode_length_end = 600
+
+    task = [imitation_task.ImitationTask(ref_motion_filenames=motion_files,
+                                         enable_cycle_sync=True,
+                                         tar_frame_steps=[1, 2, 10, 30],
+                                         ref_state_init_prob=0.9,
+                                         warmup_time=0.25)
+            for _ in range(num_robot)]
+
+    randomizers = []
+    if enable_randomizer:
+        randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(
+            verbose=False)
+        randomizers.append(randomizer)
+
+    env = locomotion_gym_env.LocomotionGymEnv(name_robot=robot, num_robot=num_robot,
+                                              env_randomizers=randomizers, task=task)
+
+    env = observation_dictionary_to_array_wrapper.ObservationDictionaryToArrayWrapper(
+        env)
+
+    if mode == "test":
+        curriculum_episode_length_start = curriculum_episode_length_end
+
+    env = imitation_wrapper_env.ImitationWrapperEnv(env,
+                                                    episode_length_start=curriculum_episode_length_start,
+                                                    episode_length_end=curriculum_episode_length_end,
+                                                    curriculum_steps=30000000,
+                                                    num_parallel_envs=num_parallel_envs)
+    return env
+
 
 def build_agent(env, num_procs, timesteps_per_actorbatch, optim_batchsize, output_dir):
-  policy_kwargs = {
-      "net_arch": [{"pi": [512, 256],
-                    "vf": [512, 256]}],
-      "act_fun": tf.nn.relu
-  }
+    policy_kwargs = {
+        "net_arch": [{"pi": [512, 256],
+                      "vf": [512, 256]}],
+        "act_fun": tf.nn.relu
+    }
 
-  timesteps_per_actorbatch = int(np.ceil(float(timesteps_per_actorbatch) / num_procs))
-  optim_batchsize = int(np.ceil(float(optim_batchsize) / num_procs))
+    timesteps_per_actorbatch = int(
+        np.ceil(float(timesteps_per_actorbatch) / num_procs))
+    optim_batchsize = int(np.ceil(float(optim_batchsize) / num_procs))
 
-  agent = ppo_imitation.PPOImitation(
-               policy=imitation_policies.ImitationPolicy,
-               env=env,
-               gamma=0.95,
-               timesteps_per_actorbatch=timesteps_per_actorbatch,
-               clip_param=0.2,
-               optim_epochs=1,
-               optim_stepsize=1e-5,
-               optim_batchsize=optim_batchsize,
-               lam=0.95,
-               adam_epsilon=1e-5,
-               schedule='constant',
-               policy_kwargs=policy_kwargs,
-               tensorboard_log=output_dir,
-               verbose=1)
-  return agent
+    agent = ppo_imitation.PPOImitation(
+        policy=imitation_policies.ImitationPolicy,
+        env=env,
+        gamma=0.95,
+        timesteps_per_actorbatch=timesteps_per_actorbatch,
+        clip_param=0.2,
+        optim_epochs=1,
+        optim_stepsize=1e-5,
+        optim_batchsize=optim_batchsize,
+        lam=0.95,
+        adam_epsilon=1e-5,
+        schedule='constant',
+        policy_kwargs=policy_kwargs,
+        tensorboard_log=output_dir,
+        verbose=1)
+    return agent
 
 
 def train(agent, env, total_timesteps, output_dir="", int_save_freq=0):
-  if (output_dir == ""):
-    save_path = None
-  else:
-    save_path = os.path.join(output_dir, "model.zip")
-    if not os.path.exists(output_dir):
-      os.makedirs(output_dir)
-  
+    if (output_dir == ""):
+        save_path = None
+    else:
+        save_path = os.path.join(output_dir, "model.zip")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
-  callbacks = []
-  # Save a checkpoint every n steps
-  if (output_dir != ""):
-    if (int_save_freq > 0):
-      int_dir = os.path.join(output_dir, "intermedate")
-      callbacks.append(CheckpointCallback(save_freq=int_save_freq, save_path=int_dir,
-                                          name_prefix='model'))
+    callbacks = []
+    # Save a checkpoint every n steps
+    if (output_dir != ""):
+        if (int_save_freq > 0):
+            int_dir = os.path.join(output_dir, "intermedate")
+            callbacks.append(CheckpointCallback(save_freq=int_save_freq, save_path=int_dir,
+                                                name_prefix='model'))
 
-  agent.learn(total_timesteps=total_timesteps, save_path=save_path, callback=callbacks)
+    agent.learn(total_timesteps=total_timesteps,
+                save_path=save_path, callback=callbacks)
 
-  return
+    return
+
 
 def test(agent, env, num_procs, num_episodes=None):
-  curr_return = 0
-  sum_return = 0
-  episode_count = 0
-  a = [0 for i in range(env.num_robot)]
+    curr_return = 0
+    sum_return = 0
+    episode_count = 0
+    a = [0 for i in range(env.num_robot)]
 
-  if num_episodes is not None:
-    num_local_episodes = int(np.ceil(float(num_episodes) / num_procs))
-  else:
-    num_local_episodes = np.inf
+    if num_episodes is not None:
+        num_local_episodes = int(np.ceil(float(num_episodes) / num_procs))
+    else:
+        num_local_episodes = np.inf
 
-  o = env.reset()
-  while episode_count < num_local_episodes:
-    a, _ = agent.predict(np.array(o), deterministic=True)
-    o, r, done, _ = env.step(a)
-    for i in range(env.num_robot):
-      curr_return += r[i]
+    o = env.reset()
+    while episode_count < num_local_episodes:
+        a, _ = agent.predict(np.array(o), deterministic=True)
+        o, r, done, _ = env.step(a)
+        for i in range(env.num_robot):
+            curr_return += r[i]
 
-    if all(done):
-        o = env.reset()
-        sum_return += curr_return
-        episode_count += 1
+        if all(done):
+            o = env.reset()
+            sum_return += curr_return
+            episode_count += 1
 
-  sum_return = MPI.COMM_WORLD.allreduce(sum_return, MPI.SUM)
-  episode_count = MPI.COMM_WORLD.allreduce(episode_count, MPI.SUM)
+    sum_return = MPI.COMM_WORLD.allreduce(sum_return, MPI.SUM)
+    episode_count = MPI.COMM_WORLD.allreduce(episode_count, MPI.SUM)
 
-  mean_return = sum_return / episode_count
+    mean_return = sum_return / episode_count
 
-  if MPI.COMM_WORLD.Get_rank() == 0:
-      print("Mean Return: " + str(mean_return))
-      print("Episode Count: " + str(episode_count))
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        print("Mean Return: " + str(mean_return))
+        print("Episode Count: " + str(episode_count))
 
-  return
+    return
+
 
 def main():
-  robot = "laikago"
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument("--task", dest="task", type=str, default="imitation_learning_laikago")
+    args = arg_parser.parse_args()
 
-  arg_parser = argparse.ArgumentParser()
-  arg_parser.add_argument("--seed", dest="seed", type=int, default=None)
-  arg_parser.add_argument("--robot", dest="robot", type=str, default=robot)
-  arg_parser.add_argument("--num_robot", dest="num_robot", type=int, default="1")
-  arg_parser.add_argument("--mode", dest="mode", type=str, default="train")
-  if robot == "laikago":
-    arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt")
-    arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/policies/dog_pace.zip")
-  elif robot == "mini_cheetah":
-    arg_parser.add_argument("--motion_file", dest="motion_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/motions/dog_trot_mini_cheetah.txt")
-    arg_parser.add_argument("--model_file", dest="model_file", type=str, default="OpenRoboRL/envs/quadruped_robot/task/policies/mini_cheetah_trot.zip")
-  # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="model.zip")
-  # arg_parser.add_argument("--model_file", dest="model_file", type=str, default="")
-  arg_parser.add_argument("--visualize", dest="visualize", action="store_true", default=True)
-  arg_parser.add_argument("--output_dir", dest="output_dir", type=str, default="output")
-  arg_parser.add_argument("--num_test_episodes", dest="num_test_episodes", type=int, default=None)
-  arg_parser.add_argument("--total_timesteps", dest="total_timesteps", type=int, default=2e8)
-  arg_parser.add_argument("--int_save_freq", dest="int_save_freq", type=int, default=0) # save intermediate model every n policy steps
+    with open('OpenRoboRL/config/training_param.yaml') as f:
+      training_params_dict = yaml.safe_load(f)
+      if args.task in list(training_params_dict.keys()):
+          training_params = training_params_dict[args.task]
+      else:
+          raise ValueError("Hyperparameters not found for pybullet_sim_config.yaml")
 
-  args = arg_parser.parse_args()
-  
-  num_procs = MPI.COMM_WORLD.Get_size()
-  os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
-  
-  enable_env_rand = ENABLE_ENV_RANDOMIZER and (args.mode != "test")
-  env = env_builder.build_imitation_env(robot=args.robot,
-                                        motion_files=[args.motion_file],
-                                        num_robot=args.num_robot,
-                                        num_parallel_envs=num_procs,
-                                        mode=args.mode,
-                                        enable_randomizer=enable_env_rand,
-                                        enable_rendering=args.visualize)
-  
-  agent = build_agent(env=env,
-                      num_procs=num_procs,
-                      timesteps_per_actorbatch=TIMESTEPS_PER_ACTORBATCH,
-                      optim_batchsize=OPTIM_BATCHSIZE,
-                      output_dir=args.output_dir)
+    num_procs = MPI.COMM_WORLD.Get_size()
+    os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
 
-  
-  if args.model_file != "":
-    agent.load_parameters(args.model_file)
+    enable_env_rand = ENABLE_ENV_RANDOMIZER and (training_params["mode"] != "test")
+    env = build_env(robot=training_params["robot"],
+                    motion_files=[training_params["motion_file"]],
+                    num_robot=training_params["num_robot"],
+                    num_parallel_envs=num_procs,
+                    mode=training_params["mode"],
+                    enable_randomizer=enable_env_rand,)
 
-  if args.mode == "train":
-      train(agent=agent, 
-            env=env, 
-            total_timesteps=args.total_timesteps,
-            output_dir=args.output_dir,
-            int_save_freq=args.int_save_freq)
-  elif args.mode == "test":
-      test(agent=agent,
-           env=env,
-           num_procs=num_procs,
-           num_episodes=args.num_test_episodes)
-  else:
-      assert False, "Unsupported mode: " + args.mode
+    agent = build_agent(env=env,
+                        num_procs=num_procs,
+                        timesteps_per_actorbatch=TIMESTEPS_PER_ACTORBATCH,
+                        optim_batchsize=OPTIM_BATCHSIZE,
+                        output_dir=training_params["output_dir"])
 
-  return
+    if training_params["model_file"] != "":
+        agent.load_parameters(training_params["model_file"])
+
+    if training_params["mode"] == "train":
+        train(agent=agent,
+              env=env,
+              total_timesteps=training_params["total_timesteps"],
+              output_dir=training_params["output_dir"],
+              int_save_freq=training_params["int_save_freq"])
+    elif training_params["mode"] == "test":
+        test(agent=agent,
+             env=env,
+             num_procs=num_procs,
+             num_episodes=training_params["num_test_episodes"])
+    else:
+        assert False, "Unsupported mode: " + training_params["mode"]
+
+    return
+
 
 if __name__ == '__main__':
-  main()
+    main()
