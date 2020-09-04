@@ -13,38 +13,29 @@ Install dependencies:
 
 and it should be good to go.
 
-## Training Models
+## Running examples
 
-To train a policy, run the following command:
+To running the example, run the following command:
 
-``python3 OpenRoboRL/run.py --mode train --motion_file OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt --int_save_freq 10000000 --visualize``
+``python3 OpenRoboRL/run.py --task imitation_learning_laikago``
 
-- `--mode` can be either `train` or `test`.
-- `--motion_file` specifies the reference motion that the robot is to imitate. `OpenRoboRL/learning/data/motions/` contains different reference motion clips.
-- `--int_save_freq` specifies the frequency for saving intermediate policies every n policy steps.
-- `--visualize` enables visualization, and rendering can be disabled by removing the flag.
+- `--task` can be "imitation_learning_laikago" or "imitation_learning_minicheetah" for now
+
+## Change Params
+
+There are two yaml file in `OpenRoboRL/config` folder, `pybullet_sim_param.yaml` is the simulation params, which is not recommended to modify, `training_param.yaml` is the training params, the following is the meaning of some parameters:
+
+- `num_robot` is the number of robots trained in parallel in the same simulator environment.
+- `mode` can be either `train` or `test`.
+- `motion_file` specifies the reference motion that the robot is to imitate. `OpenRoboRL/learning/data/motions/` contains different reference motion clips.
+- `model_file` specifies the pre-trained model that the robot is to imitate. `OpenRoboRL/learning/data/policies/` contains different model.
+- `int_save_freq` specifies the frequency for saving intermediate policies every n policy steps.
 - the trained model and logs will be written to `output/`.
 
 For parallel training with MPI run:
 
-``mpiexec -n 8 python3 OpenRoboRL/run.py --mode train --motion_file OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt --int_save_freq 10000000``
+``mpiexec -n 8 python3 OpenRoboRL/run.py --task imitation_learning_laikago``
 
 - `-n` is the number of parallel.
 
-## Testing Models
-
-To test a trained model, run the following command
-
-``python3 OpenRoboRL/run.py --mode test --motion_file OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt --model_file OpenRoboRL/envs/quadruped_robot/task/policies/dog_pace.zip --visualize``
-
-- `--model_file` specifies the `.zip` file that contains the trained model. Pretrained models are available in `OpenRoboRL/learning/data/policies/`.
-
-
-## Data
-
-- `OpenRoboRL/learning/data/motions/` contains different reference motion clips.
-- `OpenRoboRL/learning/data/policies/` contains pretrained models for the different reference motions.
-
-For more information on the reference motion data format, see the [DeepMimic documentation](https://github.com/xbpeng/DeepMimic)
-
-
+Enables visualization or not, there is "enable_rendering" param in `pybullet_sim_param.yaml` can be set.

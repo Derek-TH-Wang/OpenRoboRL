@@ -26,7 +26,7 @@ URDF_FILENAME = "mini_cheetah/mini_cheetah.urdf"
 T_STEP = 0.001
 NUM_ACTION_REPEAT = 33
 CTRL_LATENCY = 0.002
-ENABLE_ENV_RANDOMIZER = False
+ENABLE_ENV_RANDOMIZER = True
 
 NUM_MOTORS = 12
 NUM_LEGS = 4
@@ -71,20 +71,10 @@ KNEE_D_GAIN = 1.0
 # Bases on the readings from Laikago's default pose.
 INIT_MOTOR_ANGLES = np.array([0, -0.78, 1.74] * NUM_LEGS)
 
-# sensors = [
-#     sensor_wrappers.HistoricSensorWrapper(
-#         wrapped_sensor=robot_sensors.MotorAngleSensor(num_motors=NUM_MOTORS), num_history=3),
-#     sensor_wrappers.HistoricSensorWrapper(
-#         wrapped_sensor=robot_sensors.IMUSensor(), num_history=3),
-#     sensor_wrappers.HistoricSensorWrapper(
-#         wrapped_sensor=environment_sensors.LastActionSensor(num_actions=NUM_MOTORS), num_history=3)
-# ]
 
 UPPER_BOUND = 6.28318548203
 LOWER_BOUND = -6.28318548203
 
-# observation_space = (
-#     space_utils.convert_sensors_to_gym_space_dictionary(sensors))
 action_space = spaces.Box(
     np.array([LOWER_BOUND]*12),
     np.array([UPPER_BOUND]*12),

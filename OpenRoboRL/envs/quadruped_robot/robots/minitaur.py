@@ -31,8 +31,6 @@ OVERHEAT_SHUTDOWN_TORQUE = 2.45
 OVERHEAT_SHUTDOWN_TIME = 1.0
 MAX_MOTOR_ANGLE_CHANGE_PER_STEP = 0.2
 SENSOR_NOISE_STDDEV = (0.0, 0.0, 0.0, 0.0, 0.0)
-TWO_PI = 2 * math.pi
-_NUM_SIMULATION_ITERATION_STEPS = 300
 _IDENTITY_ORIENTATION = (0, 0, 0, 1)
 
 def MapToMinusPiToPi(angles):
@@ -46,11 +44,11 @@ def MapToMinusPiToPi(angles):
   """
   mapped_angles = copy.deepcopy(angles)
   for i in range(len(angles)):
-    mapped_angles[i] = math.fmod(angles[i], TWO_PI)
+    mapped_angles[i] = math.fmod(angles[i], 2 * math.pi)
     if mapped_angles[i] >= math.pi:
-      mapped_angles[i] -= TWO_PI
+      mapped_angles[i] -= 2 * math.pi
     elif mapped_angles[i] < -math.pi:
-      mapped_angles[i] += TWO_PI
+      mapped_angles[i] += 2 * math.pi
   return mapped_angles
 
 

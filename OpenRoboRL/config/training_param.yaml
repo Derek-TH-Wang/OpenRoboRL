@@ -15,7 +15,7 @@ imitation_learning_laikago:
   # model_file: ""
 
 
-imitation_learning_mini_cheetah:
+imitation_learning_minicheetah:
 
   robot: "mini_cheetah"
   seed: 0

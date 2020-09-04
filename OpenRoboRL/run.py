@@ -176,20 +176,23 @@ def test(agent, env, num_procs, num_episodes=None):
 
 def main():
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--task", dest="task", type=str, default="imitation_learning_laikago")
+    arg_parser.add_argument("--task", dest="task",
+                            type=str, default="imitation_learning_laikago")
     args = arg_parser.parse_args()
 
     with open('OpenRoboRL/config/training_param.yaml') as f:
-      training_params_dict = yaml.safe_load(f)
-      if args.task in list(training_params_dict.keys()):
-          training_params = training_params_dict[args.task]
-      else:
-          raise ValueError("Hyperparameters not found for pybullet_sim_config.yaml")
+        training_params_dict = yaml.safe_load(f)
+        if args.task in list(training_params_dict.keys()):
+            training_params = training_params_dict[args.task]
+        else:
+            raise ValueError(
+                "Hyperparameters not found for pybullet_sim_config.yaml")
 
     num_procs = MPI.COMM_WORLD.Get_size()
     os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
 
-    enable_env_rand = ENABLE_ENV_RANDOMIZER and (training_params["mode"] != "test")
+    enable_env_rand = ENABLE_ENV_RANDOMIZER and (
+        training_params["mode"] != "test")
     env = build_env(robot=training_params["robot"],
                     motion_files=[training_params["motion_file"]],
                     num_robot=training_params["num_robot"],
