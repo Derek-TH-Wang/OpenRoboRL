@@ -1,5 +1,4 @@
 quadruped_robot:
-  
   enable_rendering: True
   sim_time_step_s: 0.001
   num_action_repeat: 33
@@ -13,3 +12,4 @@ quadruped_robot:
   render_height: 360
   egl_rendering: False
   draw_ref_model_alpha: 0.5
+  num_sim_iter_step: 300

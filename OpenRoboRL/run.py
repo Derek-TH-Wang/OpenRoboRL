@@ -24,17 +24,12 @@ import time
 
 import agents.imitation_policies as imitation_policies
 import agents.ppo_imitation as ppo_imitation
-from envs.quadruped_robot import locomotion_gym_env
+from envs.quadruped_robot import quadruped_gym_env
 from envs.quadruped_robot import imitation_wrapper_env
 from envs.quadruped_robot.task import imitation_task
 from envs.utilities.randomizer import controllable_env_randomizer_from_config
 
 from stable_baselines.common.callbacks import CheckpointCallback
-
-TIMESTEPS_PER_ACTORBATCH = 4096
-OPTIM_BATCHSIZE = 256
-
-ENABLE_ENV_RANDOMIZER = True
 
 
 def set_rand_seed(seed=None):
@@ -70,8 +65,8 @@ def build_env(robot, motion_files, num_robot, num_parallel_envs, mode,
             verbose=False)
         randomizers.append(randomizer)
 
-    env = locomotion_gym_env.LocomotionGymEnv(name_robot=robot, num_robot=num_robot,
-                                              env_randomizers=randomizers, task=task)
+    env = quadruped_gym_env.LocomotionGymEnv(name_robot=robot, num_robot=num_robot,
+                                             env_randomizers=randomizers, task=task)
 
     if mode == "test":
         curriculum_episode_length_start = curriculum_episode_length_end
@@ -189,7 +184,7 @@ def main():
     num_procs = MPI.COMM_WORLD.Get_size()
     os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
 
-    enable_env_rand = ENABLE_ENV_RANDOMIZER and (
+    enable_env_rand = training_params["enable_env_randomizer"] and (
         training_params["mode"] != "test")
     env = build_env(robot=training_params["robot"],
                     motion_files=[training_params["motion_file"]],
@@ -200,8 +195,8 @@ def main():
 
     agent = build_agent(env=env,
                         num_procs=num_procs,
-                        timesteps_per_actorbatch=TIMESTEPS_PER_ACTORBATCH,
-                        optim_batchsize=OPTIM_BATCHSIZE,
+                        timesteps_per_actorbatch=training_params["timestep_per_actorbach"],
+                        optim_batchsize=training_params["optim_batchsize"],
                         output_dir=training_params["output_dir"])
 
     if training_params["model_file"] != "":

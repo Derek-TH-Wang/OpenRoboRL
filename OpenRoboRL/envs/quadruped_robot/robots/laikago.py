@@ -49,7 +49,7 @@ PATTERN = [re.compile(r"\w+_chassis_\w+"), re.compile(r"\w+_hip_motor_\w+"),
 
 INIT_RACK_POSITION = [0, 0, 1]
 INIT_POSITION = [0, 0, 0.48]
-INIT_EUL = [0.5, 0.5, 0.5, 0.5]
+INIT_QUAT = [0.5, 0.5, 0.5, 0.5]
 JOINT_DIRECTIONS = np.array([-1, 1, 1, 1, 1, 1, -1, 1, 1, 1, 1, 1])
 DOFS_PER_LEG = 3
 JOINT_OFFSETS = np.array([0.0, -0.6, 0.66] * 4)
@@ -82,3 +82,8 @@ action_space = spaces.Box(
 
 motor_kp = [ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN] * NUM_LEGS
 motor_kd = [ABDUCTION_D_GAIN, HIP_D_GAIN, KNEE_D_GAIN] * NUM_LEGS
+
+
+OVERHEAT_SHUTDOWN_TORQUE = 2.45
+OVERHEAT_SHUTDOWN_TIME = 1.0
+MAX_MOTOR_ANGLE_CHANGE_PER_STEP = 0.2

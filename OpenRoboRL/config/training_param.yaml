@@ -1,30 +1,35 @@
 imitation_learning_laikago:
-
   robot: "laikago"
   seed: 0
   num_robot: 1
   mode: "test"
   output_dir: "output"
-  num_test_episodes: 100          # test times
-  total_timesteps: 200000000      # train times
-  int_save_freq: 0                # specifies the frequency for saving intermediate policies every n policy steps.
+  num_test_episodes: 100 # test times
+  total_timesteps: 200000000 # train times
+  int_save_freq: 0 # specifies the frequency for saving intermediate policies every n policy steps.
+
+  timestep_per_actorbach: 4096
+  optim_batchsize: 256
+  enable_env_randomizer: True
 
   motion_file: "OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt"
   model_file: "OpenRoboRL/envs/quadruped_robot/task/policies/dog_pace.zip"
   # model_file: "model.zip"
   # model_file: ""
 
-
 imitation_learning_minicheetah:
-
   robot: "mini_cheetah"
   seed: 0
   num_robot: 2
   mode: "test"
   output_dir: "output"
-  num_test_episodes: 100          # test times
-  total_timesteps: 200000000      # train times
-  int_save_freq: 0                # specifies the frequency for saving intermediate policies every n policy steps.
+  num_test_episodes: 100 # test times
+  total_timesteps: 200000000 # train times
+  int_save_freq: 0 # specifies the frequency for saving intermediate policies every n policy steps.
+
+  timestep_per_actorbach: 4096
+  optim_batchsize: 256
+  enable_env_randomizer: True
 
   motion_file: "OpenRoboRL/envs/quadruped_robot/task/motions/dog_trot_mini_cheetah.txt"
   model_file: "OpenRoboRL/envs/quadruped_robot/task/policies/mini_cheetah_trot.zip"
