@@ -19,7 +19,7 @@ To running the example, run the following command:
 
 ``python3 OpenRoboRL/run.py --task imitation_learning_laikago``
 
-- `--task` can be "imitation_learning_laikago" or "imitation_learning_minicheetah" for now
+- `--task` can be `imitation_learning_laikago` or `imitation_learning_minicheetah` for now
 
 For parallel training with MPI run:
 
@@ -27,7 +27,7 @@ For parallel training with MPI run:
 
 - `-n` is the number of parallel.
 
-Enables visualization or not, there is "enable_rendering" param in `pybullet_sim_param.yaml` can be set.
+Enables visualization or not, there is `enable_rendering` param in `pybullet_sim_param.yaml` can be set.
 
 ## Change Params
 
