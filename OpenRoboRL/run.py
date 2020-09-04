@@ -44,7 +44,7 @@ def set_rand_seed(seed=None):
 
   return
 
-def build_model(env, num_procs, timesteps_per_actorbatch, optim_batchsize, output_dir):
+def build_agent(env, num_procs, timesteps_per_actorbatch, optim_batchsize, output_dir):
   policy_kwargs = {
       "net_arch": [{"pi": [512, 256],
                     "vf": [512, 256]}],
@@ -54,7 +54,7 @@ def build_model(env, num_procs, timesteps_per_actorbatch, optim_batchsize, outpu
   timesteps_per_actorbatch = int(np.ceil(float(timesteps_per_actorbatch) / num_procs))
   optim_batchsize = int(np.ceil(float(optim_batchsize) / num_procs))
 
-  model = ppo_imitation.PPOImitation(
+  agent = ppo_imitation.PPOImitation(
                policy=imitation_policies.ImitationPolicy,
                env=env,
                gamma=0.95,
@@ -69,10 +69,10 @@ def build_model(env, num_procs, timesteps_per_actorbatch, optim_batchsize, outpu
                policy_kwargs=policy_kwargs,
                tensorboard_log=output_dir,
                verbose=1)
-  return model
+  return agent
 
 
-def train(model, env, total_timesteps, output_dir="", int_save_freq=0):
+def train(agent, env, total_timesteps, output_dir="", int_save_freq=0):
   if (output_dir == ""):
     save_path = None
   else:
@@ -89,11 +89,11 @@ def train(model, env, total_timesteps, output_dir="", int_save_freq=0):
       callbacks.append(CheckpointCallback(save_freq=int_save_freq, save_path=int_dir,
                                           name_prefix='model'))
 
-  model.learn(total_timesteps=total_timesteps, save_path=save_path, callback=callbacks)
+  agent.learn(total_timesteps=total_timesteps, save_path=save_path, callback=callbacks)
 
   return
 
-def test(model, env, num_procs, num_episodes=None):
+def test(agent, env, num_procs, num_episodes=None):
   curr_return = 0
   sum_return = 0
   episode_count = 0
@@ -106,8 +106,8 @@ def test(model, env, num_procs, num_episodes=None):
 
   o = env.reset()
   while episode_count < num_local_episodes:
-    a, _ = model.predict(np.array(o), deterministic=True)
-    o, r, done, info = env.step(a)
+    a, _ = agent.predict(np.array(o), deterministic=True)
+    o, r, done, _ = env.step(a)
     for i in range(env.num_robot):
       curr_return += r[i]
 
@@ -163,7 +163,7 @@ def main():
                                         enable_randomizer=enable_env_rand,
                                         enable_rendering=args.visualize)
   
-  model = build_model(env=env,
+  agent = build_agent(env=env,
                       num_procs=num_procs,
                       timesteps_per_actorbatch=TIMESTEPS_PER_ACTORBATCH,
                       optim_batchsize=OPTIM_BATCHSIZE,
@@ -171,16 +171,16 @@ def main():
 
   
   if args.model_file != "":
-    model.load_parameters(args.model_file)
+    agent.load_parameters(args.model_file)
 
   if args.mode == "train":
-      train(model=model, 
+      train(agent=agent, 
             env=env, 
             total_timesteps=args.total_timesteps,
             output_dir=args.output_dir,
             int_save_freq=args.int_save_freq)
   elif args.mode == "test":
-      test(model=model,
+      test(agent=agent,
            env=env,
            num_procs=num_procs,
            num_episodes=args.num_test_episodes)

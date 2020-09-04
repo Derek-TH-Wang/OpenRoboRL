@@ -25,10 +25,10 @@ import pybullet_utils.bullet_client as bullet_client
 import pybullet_data as pd
 
 from envs.quadruped_robot.robots import minitaur
-from envs.quadruped_robot.sensors import sensor
-from envs.quadruped_robot.sensors import environment_sensors
-from envs.quadruped_robot.sensors import sensor_wrappers
-from envs.quadruped_robot.sensors import robot_sensors
+from envs.utilities.sensors import sensor
+from envs.utilities.sensors import environment_sensors
+from envs.utilities.sensors import sensor_wrappers
+from envs.utilities.sensors import robot_sensors
 
 
 _ACTION_EPS = 0.01

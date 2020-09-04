@@ -21,7 +21,7 @@ from __future__ import print_function
 import random
 import numpy as np
 from six.moves import range
-from envs.quadruped_robot.randomizer import env_randomizer_base
+from envs.utilities.randomizer import env_randomizer_base
 
 # Relative range.
 MINITAUR_BASE_MASS_ERROR_RANGE = (-0.2, 0.2)  # 0.2 means 20%

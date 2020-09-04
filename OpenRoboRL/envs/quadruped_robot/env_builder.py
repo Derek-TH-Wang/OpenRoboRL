@@ -15,10 +15,10 @@
 
 from envs.quadruped_robot import locomotion_gym_env
 from envs.quadruped_robot import locomotion_gym_config
-from envs.quadruped_robot.wrappers import imitation_wrapper_env
-from envs.quadruped_robot.wrappers import observation_dictionary_to_array_wrapper
+from envs.quadruped_robot import imitation_wrapper_env
+from envs.quadruped_robot import observation_dictionary_to_array_wrapper
 from envs.quadruped_robot.task import imitation_task
-from envs.quadruped_robot.randomizer import controllable_env_randomizer_from_config
+from envs.utilities.randomizer import controllable_env_randomizer_from_config
 from envs.quadruped_robot.robots import laikago
 
 

@@ -25,8 +25,8 @@ import random
 import numpy as np
 import six
 import tensorflow.compat.v1 as tf
-from envs.quadruped_robot.randomizer import env_randomizer_base
-from envs.quadruped_robot.randomizer import minitaur_env_randomizer_config
+from envs.utilities.randomizer import env_randomizer_base
+from envs.utilities.randomizer import minitaur_env_randomizer_config
 
 SIMULATION_TIME_STEP = 0.001
 

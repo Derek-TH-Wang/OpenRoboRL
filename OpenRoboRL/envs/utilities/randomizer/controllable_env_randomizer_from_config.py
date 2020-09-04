@@ -25,8 +25,8 @@ import functools
 import numpy as np
 import tensorflow as tf
 
-from envs.quadruped_robot.randomizer import controllable_env_randomizer_base
-from envs.quadruped_robot.randomizer import minitaur_env_randomizer_config
+from envs.utilities.randomizer import controllable_env_randomizer_base
+from envs.utilities.randomizer import minitaur_env_randomizer_config
 
 SIMULATION_TIME_STEP = 0.001
 NUM_LEGS = 4

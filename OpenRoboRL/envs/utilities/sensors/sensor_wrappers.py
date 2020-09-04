@@ -24,7 +24,7 @@ import collections
 import numpy as np
 import typing
 
-from envs.quadruped_robot.sensors import sensor
+from envs.utilities.sensors import sensor
 
 
 _ARRAY = typing.Iterable[float]
