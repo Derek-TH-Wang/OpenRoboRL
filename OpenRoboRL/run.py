@@ -28,7 +28,6 @@ from envs.quadruped_robot import quadruped_gym_env
 from envs.quadruped_robot import imitation_wrapper_env
 from envs.quadruped_robot.robots import minitaur
 from envs.quadruped_robot.task import imitation_task
-from envs.utilities.randomizer import controllable_env_randomizer_from_config
 
 from stable_baselines.common.callbacks import CheckpointCallback
 
@@ -53,7 +52,7 @@ def build_env(name_robot, motion_files, num_robot, num_parallel_envs, mode,
     curriculum_episode_length_start = 20
     curriculum_episode_length_end = 600
 
-    robot = [minitaur.Minitaur(name_robot=name_robot, robot_index=i)
+    robot = [minitaur.Minitaur(name_robot=name_robot, robot_index=i, enable_randomizer = enable_randomizer)
              for i in range(num_robot)]
     task = [imitation_task.ImitationTask(ref_motion_filenames=motion_files,
                                          enable_cycle_sync=True,
@@ -62,13 +61,7 @@ def build_env(name_robot, motion_files, num_robot, num_parallel_envs, mode,
                                          warmup_time=0.25)
             for _ in range(num_robot)]
 
-    randomizers = []
-    if enable_randomizer:
-        randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(
-            verbose=False)
-        randomizers.append(randomizer)
-
-    env = quadruped_gym_env.LocomotionGymEnv(robot, task, randomizers)
+    env = quadruped_gym_env.LocomotionGymEnv(robot, task)
 
     if mode == "test":
         curriculum_episode_length_start = curriculum_episode_length_end
@@ -193,7 +186,7 @@ def main():
                     num_robot=training_params["num_robot"],
                     num_parallel_envs=num_procs,
                     mode=training_params["mode"],
-                    enable_randomizer=enable_env_rand,)
+                    enable_randomizer=enable_env_rand)
 
     agent = build_agent(env=env,
                         num_procs=num_procs,

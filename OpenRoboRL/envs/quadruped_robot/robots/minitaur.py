@@ -25,13 +25,14 @@ import re
 import typing
 import numpy as np
 from gym import spaces
+
 from envs.quadruped_robot.robots import minitaur_motor
 from envs.utilities import action_filter
 from envs.utilities.sensors import sensor
 from envs.utilities.sensors import environment_sensors
 from envs.utilities.sensors import sensor_wrappers
 from envs.utilities.sensors import robot_sensors
-
+from envs.utilities.randomizer import controllable_env_randomizer_from_config
 
 def MapToMinusPiToPi(angles):
     """Maps a list of angles to [-pi, pi].
@@ -55,7 +56,7 @@ def MapToMinusPiToPi(angles):
 class Minitaur(object):
     """The minitaur class that simulates a quadruped robot from Ghost Robotics."""
 
-    def __init__(self, name_robot, robot_index=0):
+    def __init__(self, name_robot, robot_index=0, enable_randomizer=True):
         """Constructs a minitaur and reset it to the initial states.
 
         Args:
@@ -131,6 +132,7 @@ class Minitaur(object):
         self._overheat_shutdown_time = robot.OVERHEAT_SHUTDOWN_TIME
         self._max_motor_angle_step = robot.MAX_MOTOR_ANGLE_CHANGE_PER_STEP
 
+        self._enable_randomizer = enable_randomizer
         self._robot_index = robot_index
         self.num_legs = self.num_motors // robot.DOFS_PER_LEG
         self._self_collision_enabled = False
@@ -205,10 +207,11 @@ class Minitaur(object):
 
         if self._enable_action_filter:
             self._action_filter = self._BuildActionFilter()
-        # reset_time=-1.0 means skipping the reset motion.
-        # See Reset for more details.
-        # self.Reset()
-        # self.ReceiveObservation()
+
+        self._randomizers = []
+        randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(
+            verbose=False)
+        self._randomizers.append(randomizer)
 
         return
 
@@ -469,6 +472,12 @@ class Minitaur(object):
 
         for s in self.GetAllSensors():
             s.on_reset(self)
+
+        # Loop over all env randomizers.
+        if self._enable_randomizer:
+            for env_randomizer in self._randomizers:
+                env_randomizer.randomize_env(self)
+
         return
 
     def _LoadRobotURDF(self, robot_index=0):
@@ -1453,3 +1462,7 @@ class Minitaur(object):
     @property
     def action_repeat(self):
         return self._action_repeat
+
+    @property
+    def randomizer(self):
+        return self._randomizers

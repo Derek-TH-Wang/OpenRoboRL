@@ -33,16 +33,13 @@ class LocomotionGymEnv(gym.Env):
         'video.frames_per_second': 100
     }
 
-    def __init__(self, robot=None, task=None, env_randomizers=None):
+    def __init__(self, robot=None, task=None):
         """Initializes the locomotion gym environment.
 
         Args:
           robot: A class of a robot.
           task: A callable function/class to calculate the reward and termination
             condition. Takes the gym env as the argument when calling.
-          env_randomizers: A list of EnvRandomizer(s). An EnvRandomizer may
-            randomize the physical property of minitaur, change the terrrain during
-            reset(), or add perturbation forces during step().
 
         Raises:
           ValueError: If the num_action_repeat is less than 1.
@@ -54,7 +51,6 @@ class LocomotionGymEnv(gym.Env):
             raise ValueError("no input robot or task")
         self._robot = robot
         self._task = task
-        self._env_randomizers = env_randomizers if env_randomizers else []
         self.num_robot = len(robot)
         self._init()
 
@@ -101,11 +97,6 @@ class LocomotionGymEnv(gym.Env):
             if self._task[i] and hasattr(self._task[i], 'reset'):
                 self._task[i].reset(self._robot[i], self)
 
-        # Loop over all env randomizers.
-        for i in range(self.num_robot):
-            for env_randomizer in self._env_randomizers:
-                env_randomizer.randomize_env(self._robot[i])
-
         obs = [self._robot[i]._get_observation()
                for i in range(self.num_robot)]
         obs = self._flatten_observation(obs)
@@ -150,9 +141,6 @@ class LocomotionGymEnv(gym.Env):
                 self._delay_id)
             if (delay > 0):
                 time.sleep(delay)
-        for i in range(self.num_robot):
-            for env_randomizer in self._env_randomizers:
-                env_randomizer.randomize_step(self._robot[i])
 
         obs, reward, done = self._step(action)
 
