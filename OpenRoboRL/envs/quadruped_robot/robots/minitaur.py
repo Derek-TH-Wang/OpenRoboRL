@@ -255,6 +255,12 @@ class Minitaur(object):
         if i == self._action_repeat-1:
             self._filter_action = self._action
 
+    def GetObs(self):
+        for s in self.GetAllSensors():
+            s.on_step()
+        obs = self._get_observation()
+        return obs
+
     def Terminate(self):
         pass
 
@@ -461,6 +467,8 @@ class Minitaur(object):
         if self._enable_action_filter:
             self._ResetActionFilter()
 
+        for s in self.GetAllSensors():
+            s.on_reset(self)
         return
 
     def _LoadRobotURDF(self, robot_index=0):
@@ -725,6 +733,20 @@ class Minitaur(object):
         jacobian = np.array(jv)
         assert jacobian.shape[0] == 3
         return jacobian
+
+    def _get_observation(self):
+        """Get observation of this environment from a list of sensors.
+
+        Returns:
+          observations: sensory observation in the numpy array format
+        """
+        sensors_dict = {}
+        for s in self.GetAllSensors():
+            sensors_dict[s.get_name()] = s.get_observation()
+
+        observations = collections.OrderedDict(
+            sorted(list(sensors_dict.items())))
+        return observations
 
     def GetTrueMotorAngles(self):
         """Gets the eight motor angles at the current moment, mapped to [-pi, pi].
