@@ -157,7 +157,10 @@ class Minitaur(object):
             wrapped_sensor=environment_sensors.LastActionSensor(num_actions=self.num_motors), num_history=3)]
         self.SetAllSensors(sensor)
 
-        self.action_space = robot.action_space
+        self.action_space = spaces.Box(
+            np.array([-2*math.pi]*12),
+            np.array([2*math.pi]*12),
+            dtype=np.float32)
         gym_space_dict = {}
         for s in self.GetAllSensors():
             gym_space_dict[s.get_name()] = spaces.Box(
@@ -1402,11 +1405,6 @@ class Minitaur(object):
         return filtered_action
 
     def GetDefaultInitPosition(self):
-        """Returns the init position of the robot.
-
-        It can be either 1) origin (INIT_POSITION), 2) origin with a rack
-        (INIT_RACK_POSITION), or 3) the previous position.
-        """
         return self._init_pos
 
     def GetDefaultInitOrientation(self):

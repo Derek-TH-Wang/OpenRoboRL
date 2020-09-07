@@ -20,13 +20,11 @@ import numpy as np
 from gym import spaces
 
 
-
 URDF_FILENAME = "mini_cheetah/mini_cheetah.urdf"
 
 T_STEP = 0.001
 NUM_ACTION_REPEAT = 33
 CTRL_LATENCY = 0.002
-ENABLE_ENV_RANDOMIZER = True
 
 NUM_MOTORS = 12
 NUM_LEGS = 4
@@ -61,27 +59,12 @@ _DEFAULT_HIP_POSITIONS = (
     (-0.38, 0.1161, 0),
 )
 
-ABDUCTION_P_GAIN = 80.0
-ABDUCTION_D_GAIN = 0.1
-HIP_P_GAIN = 80.0
-HIP_D_GAIN = 1.0
-KNEE_P_GAIN = 80.0
-KNEE_D_GAIN = 1.0
-
 # Bases on the readings from Laikago's default pose.
 INIT_MOTOR_ANGLES = np.array([0, -0.78, 1.74] * NUM_LEGS)
 
 
-UPPER_BOUND = 6.28318548203
-LOWER_BOUND = -6.28318548203
-
-action_space = spaces.Box(
-    np.array([LOWER_BOUND]*12),
-    np.array([UPPER_BOUND]*12),
-    dtype=np.float32)
-
-motor_kp = [ABDUCTION_P_GAIN, HIP_P_GAIN, KNEE_P_GAIN] * NUM_LEGS
-motor_kd = [ABDUCTION_D_GAIN, HIP_D_GAIN, KNEE_D_GAIN] * NUM_LEGS
+motor_kp = [80.0, 80.0, 80.0] * NUM_LEGS
+motor_kd = [0.1, 1.0, 1.0] * NUM_LEGS
 
 
 OVERHEAT_SHUTDOWN_TORQUE = 2.45
