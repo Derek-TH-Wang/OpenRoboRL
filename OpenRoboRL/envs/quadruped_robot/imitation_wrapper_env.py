@@ -97,7 +97,7 @@ class ImitationWrapperEnv(object):
     Returns:
       A numpy array contains the initial observation after reset.
     """
-    original_observation = self._gym_env.reset(initial_motor_angles, reset_duration)
+    original_observation = self._gym_env.reset()
     observation = self._modify_observation(original_observation)
 
     if self._enable_curriculum():

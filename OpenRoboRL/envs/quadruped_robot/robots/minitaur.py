@@ -24,6 +24,7 @@ import math
 import re
 import typing
 import numpy as np
+from gym import spaces
 from envs.quadruped_robot.robots import minitaur_motor
 from envs.utilities import action_filter
 from envs.utilities.sensors import sensor
@@ -54,7 +55,7 @@ def MapToMinusPiToPi(angles):
 class Minitaur(object):
     """The minitaur class that simulates a quadruped robot from Ghost Robotics."""
 
-    def __init__(self, name_robot, pybullet_client, robot_index=0, sensor=None):
+    def __init__(self, name_robot, robot_index=0):
         """Constructs a minitaur and reset it to the initial states.
 
         Args:
@@ -126,14 +127,12 @@ class Minitaur(object):
         self._motor_kp = robot.motor_kp
         self._motor_kd = robot.motor_kd
         self._motor_control_mode = minitaur_motor.POSITION
-        self.action_space = robot.action_space
         self._overheat_shutdown_tau = robot.OVERHEAT_SHUTDOWN_TORQUE
         self._overheat_shutdown_time = robot.OVERHEAT_SHUTDOWN_TIME
         self._max_motor_angle_step = robot.MAX_MOTOR_ANGLE_CHANGE_PER_STEP
 
         self._robot_index = robot_index
         self.num_legs = self.num_motors // robot.DOFS_PER_LEG
-        self._pybullet_client = pybullet_client
         self._self_collision_enabled = False
         self._observed_motor_torques = np.zeros(self.num_motors)
         self._applied_motor_torques = np.zeros(self.num_motors)
@@ -157,6 +156,15 @@ class Minitaur(object):
             sensor_wrappers.HistoricSensorWrapper(
             wrapped_sensor=environment_sensors.LastActionSensor(num_actions=self.num_motors), num_history=3)]
         self.SetAllSensors(sensor)
+
+        self.action_space = robot.action_space
+        gym_space_dict = {}
+        for s in self.GetAllSensors():
+            gym_space_dict[s.get_name()] = spaces.Box(
+                np.array(s.get_lower_bound()),
+                np.array(s.get_upper_bound()),
+                dtype=np.float32)
+        self.observation_space = spaces.Dict(gym_space_dict)
 
         self._is_safe = True
         self._motor_torque_limits = None
@@ -191,17 +199,18 @@ class Minitaur(object):
 
         # This also includes the time spent during the Reset motion.
         self._state_action_counter = 0
-        _, self._init_orientation_inv = self._pybullet_client.invertTransform(
-            position=[0, 0, 0], orientation=self.GetDefaultInitOrientation())
 
         if self._enable_action_filter:
             self._action_filter = self._BuildActionFilter()
         # reset_time=-1.0 means skipping the reset motion.
         # See Reset for more details.
-        self.Reset(reset_time=-1.0)
-        self.ReceiveObservation()
+        # self.Reset()
+        # self.ReceiveObservation()
 
         return
+
+    def set_sim_handler(self, handler):
+        self._pybullet_client = handler
 
     def GetTimeSinceReset(self):
         return self._step_counter * self.time_step
@@ -382,7 +391,37 @@ class Minitaur(object):
         """
         return True
 
-    def Reset(self, reload_urdf=True, default_motor_angles=None, reset_time=3.0):
+    def init_robot(self):
+        self._LoadRobotURDF(self._robot_index)
+        if self._on_rack:
+            self.rack_constraint = (
+                self._CreateRackConstraint(self.GetDefaultInitPosition(),
+                                           self.GetDefaultInitOrientation()))
+        self._BuildJointNameToIdDict()
+        self._BuildUrdfIds()
+        self._RemoveDefaultJointDamping()
+        self._BuildMotorIdList()
+        self._RecordMassInfoFromURDF()
+        self._RecordInertiaInfoFromURDF()
+        self.ResetPose(add_constraint=True)
+
+        self._overheat_counter = np.zeros(self.num_motors)
+        self._motor_enabled_list = [True] * self.num_motors
+        self._observation_history.clear()
+        self._step_counter = 0
+        self._state_action_counter = 0
+        self._is_safe = True
+        self._filter_action = None
+        self._last_action = np.zeros(self.num_motors)
+
+        self.ReceiveObservation()
+
+        if self._enable_action_filter:
+            self._ResetActionFilter()
+
+        return
+
+    def Reset(self):
         """Reset the minitaur to its initial states.
 
         Args:
@@ -395,28 +434,15 @@ class Minitaur(object):
             reset_time <= 0 or in torque control mode, the phase of holding the
             default pose is skipped.
         """
-        if reload_urdf:
-            self._LoadRobotURDF(self._robot_index)
-            if self._on_rack:
-                self.rack_constraint = (
-                    self._CreateRackConstraint(self.GetDefaultInitPosition(),
-                                               self.GetDefaultInitOrientation()))
-            self._BuildJointNameToIdDict()
-            self._BuildUrdfIds()
-            self._RemoveDefaultJointDamping()
-            self._BuildMotorIdList()
-            self._RecordMassInfoFromURDF()
-            self._RecordInertiaInfoFromURDF()
-            self.ResetPose(add_constraint=True)
-        else:
-            pos = copy.deepcopy(self.GetDefaultInitPosition())
-            pos[1] += self._robot_index
-            ori = self.GetDefaultInitOrientation()
-            self._pybullet_client.resetBasePositionAndOrientation(
-                self.quadruped, pos, ori)
-            self._pybullet_client.resetBaseVelocity(self.quadruped, [0, 0, 0],
-                                                    [0, 0, 0])
-            self.ResetPose(add_constraint=False)
+
+        pos = copy.deepcopy(self.GetDefaultInitPosition())
+        pos[1] += self._robot_index
+        ori = self.GetDefaultInitOrientation()
+        self._pybullet_client.resetBasePositionAndOrientation(
+            self.quadruped, pos, ori)
+        self._pybullet_client.resetBaseVelocity(self.quadruped, [0, 0, 0],
+                                                [0, 0, 0])
+        self.ResetPose(add_constraint=False)
 
         self._overheat_counter = np.zeros(self.num_motors)
         self._motor_enabled_list = [True] * self.num_motors
@@ -460,10 +486,6 @@ class Minitaur(object):
             jointIndices=motor_ids,
             controlMode=self._pybullet_client.TORQUE_CONTROL,
             forces=torques)
-
-    def _SetDesiredMotorAngleByName(self, motor_name, desired_angle):
-        self._SetDesiredMotorAngleById(self._joint_name_to_id[motor_name],
-                                       desired_angle)
 
     def GetURDFFile(self):
         return self._urdf_file
@@ -532,9 +554,6 @@ class Minitaur(object):
             np.array(delayed_roll_pitch_yaw), self._observation_noise_stdev[3])
         return roll_pitch_yaw
 
-    def GetHipPositionsInBaseFrame(self):
-        return _DEFAULT_HIP_POSITIONS
-
     def ComputeMotorAnglesFromFootLocalPosition(self, leg_id,
                                                 foot_local_position):
         """Use IK to compute the motor angles, given the foot link's local position.
@@ -596,24 +615,6 @@ class Minitaur(object):
                 com_dof + joint_id] * self._motor_direction[joint_id]
 
         return motor_torques
-
-    def GetFootContacts(self):
-        all_contacts = self._pybullet_client.getContactPoints(
-            bodyA=self.quadruped)
-
-        contacts = [False, False, False, False]
-        for contact in all_contacts:
-            # Ignore self contacts
-            if contact[_BODY_B_FIELD_NUMBER] == self.quadruped:
-                continue
-            try:
-                toe_link_index = self._foot_link_ids.index(
-                    contact[_LINK_A_FIELD_NUMBER])
-                contacts[toe_link_index] = True
-            except ValueError:
-                continue
-
-        return contacts
 
     def GetFootPositionsInBaseFrame(self):
         """Get the robot's foot position in the base frame."""
@@ -1159,11 +1160,13 @@ class Minitaur(object):
             self._pybullet_client.getBasePositionAndOrientation(self.quadruped))
         # Computes the relative orientation relative to the robot's
         # initial_orientation.
+        _, _init_orientation_inv = self._pybullet_client.invertTransform(
+            position=[0, 0, 0], orientation=self.GetDefaultInitOrientation())
         _, self._base_orientation = self._pybullet_client.multiplyTransforms(
             positionA=[0, 0, 0],
             orientationA=orientation,
             positionB=[0, 0, 0],
-            orientationB=self._init_orientation_inv)
+            orientationB=_init_orientation_inv)
         self._observation_history.appendleft(self.GetTrueObservation())
         self._control_observation = self._GetControlObservation()
         self.last_state_time = self._state_action_counter * self.time_step
@@ -1404,10 +1407,7 @@ class Minitaur(object):
         It can be either 1) origin (INIT_POSITION), 2) origin with a rack
         (INIT_RACK_POSITION), or 3) the previous position.
         """
-        if self._on_rack:
-            return self._init_rack_pos
-        else:
-            return self._init_pos
+        return self._init_pos
 
     def GetDefaultInitOrientation(self):
         """Returns the init position of the robot.

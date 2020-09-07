@@ -26,6 +26,7 @@ import agents.imitation_policies as imitation_policies
 import agents.ppo_imitation as ppo_imitation
 from envs.quadruped_robot import quadruped_gym_env
 from envs.quadruped_robot import imitation_wrapper_env
+from envs.quadruped_robot.robots import minitaur
 from envs.quadruped_robot.task import imitation_task
 from envs.utilities.randomizer import controllable_env_randomizer_from_config
 
@@ -45,13 +46,15 @@ def set_rand_seed(seed=None):
     return
 
 
-def build_env(robot, motion_files, num_robot, num_parallel_envs, mode,
+def build_env(name_robot, motion_files, num_robot, num_parallel_envs, mode,
               enable_randomizer):
     assert len(motion_files) > 0
 
     curriculum_episode_length_start = 20
     curriculum_episode_length_end = 600
 
+    robot = [minitaur.Minitaur(name_robot=name_robot, robot_index=i)
+             for i in range(num_robot)]
     task = [imitation_task.ImitationTask(ref_motion_filenames=motion_files,
                                          enable_cycle_sync=True,
                                          tar_frame_steps=[1, 2, 10, 30],
@@ -65,8 +68,7 @@ def build_env(robot, motion_files, num_robot, num_parallel_envs, mode,
             verbose=False)
         randomizers.append(randomizer)
 
-    env = quadruped_gym_env.LocomotionGymEnv(name_robot=robot, num_robot=num_robot,
-                                             env_randomizers=randomizers, task=task)
+    env = quadruped_gym_env.LocomotionGymEnv(robot, task, randomizers)
 
     if mode == "test":
         curriculum_episode_length_start = curriculum_episode_length_end
@@ -186,7 +188,7 @@ def main():
 
     enable_env_rand = training_params["enable_env_randomizer"] and (
         training_params["mode"] != "test")
-    env = build_env(robot=training_params["robot"],
+    env = build_env(name_robot=training_params["robot"],
                     motion_files=[training_params["motion_file"]],
                     num_robot=training_params["num_robot"],
                     num_parallel_envs=num_procs,

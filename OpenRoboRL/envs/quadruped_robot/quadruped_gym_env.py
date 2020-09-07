@@ -25,8 +25,6 @@ import pybullet
 import pybullet_utils.bullet_client as bullet_client
 import pybullet_data as pd
 
-from envs.quadruped_robot.robots import minitaur
-
 
 class LocomotionGymEnv(gym.Env):
     """The gym environment for the locomotion tasks."""
@@ -35,11 +33,7 @@ class LocomotionGymEnv(gym.Env):
         'video.frames_per_second': 100
     }
 
-    def __init__(self,
-                 name_robot=None,
-                 num_robot=1,
-                 task=None,
-                 env_randomizers=None):
+    def __init__(self, robot=None, task=None, env_randomizers=None):
         """Initializes the locomotion gym environment.
 
         Args:
@@ -59,8 +53,12 @@ class LocomotionGymEnv(gym.Env):
         """
 
         self.seed()
-        self._name_robot = name_robot
-        self.num_robot = num_robot
+        if robot == None or task == None:
+            raise ValueError("no input robot or task")
+        self._robot = robot
+        self._task = task
+        self._env_randomizers = env_randomizers if env_randomizers else []
+        self.num_robot = len(robot)
 
         with open('OpenRoboRL/config/pybullet_sim_param.yaml') as f:
             sim_params_dict = yaml.safe_load(f)
@@ -70,17 +68,12 @@ class LocomotionGymEnv(gym.Env):
                 raise ValueError(
                     "Hyperparameters not found for pybullet_sim_config.yaml")
 
-        # A dictionary containing the objects in the world other than the robot.
-        self._world_dict = {}
-        self._task = task
-
-        self._env_randomizers = env_randomizers if env_randomizers else []
+        self.action_space = self._robot[0].action_space
+        self.observation_space = self._flatten_observation_spaces(
+            self.robot[0].observation_space)
 
         # Simulation related parameters.
-        self._num_action_repeat = self._sim_params["num_action_repeat"]
-        self._on_rack = self._sim_params["robot_on_rack"]
-        if self._num_action_repeat < 1:
-            raise ValueError('number of action repeats should be at least 1.')
+        self._num_action_repeat = self._robot[0].action_repeat
         self._sim_time_step = self._sim_params["sim_time_step_s"]
         self._env_time_step = self._num_action_repeat * self._sim_time_step
         self._env_step_counter = 0
@@ -99,39 +92,27 @@ class LocomotionGymEnv(gym.Env):
             pybullet.configureDebugVisualizer(
                 pybullet.COV_ENABLE_GUI,
                 self._sim_params["enable_rendering_gui"])
-            self._show_reference_id = pybullet.addUserDebugParameter(
-                "show reference", 0, 1, self._sim_params["draw_ref_model_alpha"])
             self._delay_id = pybullet.addUserDebugParameter("delay", 0, 0.3, 0)
         else:
             self._pybullet_client = bullet_client.BulletClient(
                 connection_mode=pybullet.DIRECT)
         self._pybullet_client.setAdditionalSearchPath(pd.getDataPath())
-        if self._sim_params["egl_rendering"]:
-            self._pybullet_client.loadPlugin('eglRendererPlugin')
+        self._pybullet_client.resetSimulation()
+        self._pybullet_client.setPhysicsEngineParameter(
+            numSolverIterations=self._num_bullet_solver_iterations)
+        self._pybullet_client.setTimeStep(self._sim_time_step)
+        self._pybullet_client.setGravity(0, 0, -10)
 
-        # Set the default render options.
-        self._camera_dist = self._sim_params["camera_distance"]
-        self._camera_yaw = self._sim_params["camera_yaw"]
-        self._camera_pitch = self._sim_params["camera_pitch"]
-        self._render_width = self._sim_params["render_width"]
-        self._render_height = self._sim_params["render_height"]
+        # Rebuild the world.
+        self._world_dict = {
+            "ground": self._pybullet_client.loadURDF("plane_implicit.urdf")
+        }
 
-        self._hard_reset = True
+        for i in range(self.num_robot):
+            self._robot[i].set_sim_handler(self._pybullet_client)
+            self._robot[i].init_robot()
+
         self.reset()
-
-        self._hard_reset = self._sim_params["enable_hard_reset"]
-
-        # Construct the observation space from the list of sensors. Note that we
-        # will reconstruct the observation_space after the robot is created.
-        gym_space_dict = {}
-        for s in self.all_sensors(self._robot[0]):
-            gym_space_dict[s.get_name()] = spaces.Box(
-                np.array(s.get_lower_bound()),
-                np.array(s.get_upper_bound()),
-                dtype=np.float32)
-        self.observation_space = spaces.Dict(gym_space_dict)
-        self.observation_space = self._flatten_observation_spaces(
-            self.observation_space)
 
     def close(self):
         if hasattr(self, '_robot') and self._robot:
@@ -222,10 +203,7 @@ class LocomotionGymEnv(gym.Env):
             raise ValueError(
                 'flatten_observations observation_excluded is not none')
 
-    def reset(self,
-              initial_motor_angles=None,
-              reset_duration=0.0,
-              reset_visualization_camera=True):
+    def reset(self, reset_visualization_camera=False):
         """Resets the robot's position in the world or rebuild the sim world.
 
         The simulation world will be rebuilt if self._hard_reset is True.
@@ -245,40 +223,15 @@ class LocomotionGymEnv(gym.Env):
             self._pybullet_client.configureDebugVisualizer(
                 self._pybullet_client.COV_ENABLE_RENDERING, 0)
 
-        # Clear the simulation world and rebuild the robot interface.
-        if self._hard_reset:
-            self._pybullet_client.resetSimulation()
-            self._pybullet_client.setPhysicsEngineParameter(
-                numSolverIterations=self._num_bullet_solver_iterations)
-            self._pybullet_client.setTimeStep(self._sim_time_step)
-            self._pybullet_client.setGravity(0, 0, -10)
-
-            # Rebuild the world.
-            self._world_dict = {
-                "ground": self._pybullet_client.loadURDF("plane_implicit.urdf")
-            }
-
-            # Rebuild the robot
-            self._robot = [minitaur.Minitaur(name_robot=self._name_robot,
-                                             pybullet_client=self._pybullet_client,
-                                             robot_index=i) for i in range(self.num_robot)]
-
         # Reset the pose of the robot.
         for i in range(self.num_robot):
-            self._robot[i].Reset(
-                reload_urdf=False,
-                default_motor_angles=initial_motor_angles,
-                reset_time=reset_duration)
-
-        self.action_space = self._robot[0].action_space
+            self._robot[i].Reset()
 
         self._pybullet_client.setPhysicsEngineParameter(enableConeFriction=0)
         self._env_step_counter = 0
-        # if reset_visualization_camera:
-        # self._pybullet_client.resetDebugVisualizerCamera(self._camera_dist,
-        #                                                  self._camera_yaw,
-        #                                                  self._camera_pitch,
-        #                                                  [0, 0, 0])
+        if reset_visualization_camera:
+            self._pybullet_client.resetDebugVisualizerCamera(
+                3.0, 0, -30, [0, 0, 0])
 
         if self._is_render:
             self._pybullet_client.configureDebugVisualizer(
