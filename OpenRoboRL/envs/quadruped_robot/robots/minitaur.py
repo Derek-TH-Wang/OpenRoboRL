@@ -200,7 +200,7 @@ class Minitaur(object):
             torque_limits=self._motor_torque_limits,
             motor_control_mode=self._motor_control_mode)
 
-        self._step_counter = 0
+        self.step_counter = 0
 
         # This also includes the time spent during the Reset motion.
         self._state_action_counter = 0
@@ -215,33 +215,8 @@ class Minitaur(object):
 
         return
 
-    def set_sim_handler(self, handler):
-        self._pybullet_client = handler
-
     def GetTimeSinceReset(self):
-        return self._step_counter * self.time_step
-
-    def Step(self, action):
-        """Steps simulation."""
-        self._last_action = action
-
-        if self._enable_action_filter:
-            action = self._FilterAction(action)
-
-        for i in range(self._action_repeat):
-            proc_action = self.ProcessAction(action, i)
-            # if i == self._action_repeat-1:
-            #   self._filter_action = action
-            self.ApplyAction(proc_action)
-            self._pybullet_client.stepSimulation()
-            self.ReceiveObservation()
-
-            self._state_action_counter += 1
-            self._step_counter += 1
-
-        self._filter_action = action
-
-        return
+        return self._state_action_counter * self.time_step
 
     def SetAct(self, action):
         action += self._init_motor_angle
@@ -254,9 +229,9 @@ class Minitaur(object):
         proc_action = self.ProcessAction(self._action, i)
         self.ApplyAction(proc_action)
         self._state_action_counter += 1
-        self._step_counter += 1
         if i == self._action_repeat-1:
             self._filter_action = self._action
+            self.step_counter += 1
 
     def GetObs(self):
         for s in self.GetAllSensors():
@@ -403,7 +378,8 @@ class Minitaur(object):
         """
         return True
 
-    def init_robot(self):
+    def init_robot(self, sim_handler):
+        self._pybullet_client = sim_handler
         self._LoadRobotURDF(self._robot_index)
         if self._on_rack:
             self.rack_constraint = (
@@ -420,7 +396,7 @@ class Minitaur(object):
         self._overheat_counter = np.zeros(self.num_motors)
         self._motor_enabled_list = [True] * self.num_motors
         self._observation_history.clear()
-        self._step_counter = 0
+        self.step_counter = 0
         self._state_action_counter = 0
         self._is_safe = True
         self._filter_action = None
@@ -459,7 +435,7 @@ class Minitaur(object):
         self._overheat_counter = np.zeros(self.num_motors)
         self._motor_enabled_list = [True] * self.num_motors
         self._observation_history.clear()
-        self._step_counter = 0
+        self.step_counter = 0
         self._state_action_counter = 0
         self._is_safe = True
         self._filter_action = None
@@ -1428,7 +1404,7 @@ class Minitaur(object):
         # initialize the filter history, since resetting the filter will fill
         # the history with zeros and this can cause sudden movements at the start
         # of each episode
-        if self._step_counter == 0:
+        if self._state_action_counter == 0:
             default_action = self.GetMotorAngles()
             self._action_filter.init_history(default_action)
 

@@ -154,13 +154,17 @@ class ImitationTask(object):
 
         return
 
+    def _init_task(self, sim_handler, ground_id, env_time_step):
+        self._pybullet_client = sim_handler
+        self._ground = ground_id
+        self._env_time_step = env_time_step
+
     def __call__(self):
         return self.reward()
 
-    def reset(self, robot, env):
+    def reset(self, robot):
         """Resets the internal state of the task."""
         self._robot = robot
-        self._env = env
         self._last_base_position = self._get_sim_base_position()
         self._episode_start_time_offset = 0.0
 
@@ -259,7 +263,7 @@ class ImitationTask(object):
         tar_poses = []
 
         time0 = self._get_motion_time()
-        dt = self._env.env_time_step
+        dt = self._env_time_step
         motion = self.get_active_motion()
 
         robot = self._robot
@@ -356,7 +360,7 @@ class ImitationTask(object):
         robot = self._robot
         sim_model = robot.quadruped
         ref_model = self._ref_model
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
 
         pose_err = 0.0
         num_joints = self._get_num_joints()
@@ -385,7 +389,7 @@ class ImitationTask(object):
         robot = self._robot
         sim_model = robot.quadruped
         ref_model = self._ref_model
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
 
         vel_err = 0.0
         num_joints = self._get_num_joints()
@@ -414,7 +418,7 @@ class ImitationTask(object):
         robot = self._robot
         sim_model = robot.quadruped
         ref_model = self._ref_model
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
 
         root_pos_ref = self._get_ref_base_position()
         root_rot_ref = self._get_ref_base_rotation()
@@ -490,7 +494,7 @@ class ImitationTask(object):
         robot = self._robot
         sim_model = robot.quadruped
         ref_model = self._ref_model
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
 
         root_vel_ref, root_ang_vel_ref = pyb.getBaseVelocity(ref_model)
         root_vel_sim, root_ang_vel_sim = pyb.getBaseVelocity(sim_model)
@@ -524,15 +528,15 @@ class ImitationTask(object):
           A boolean indicating if episode is over.
         """
 
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
         motion_over = self.is_motion_over()
         foot_links = self._robot.GetFootLinkIDs()
-        ground = self._env.get_ground()
+        ground = self._ground
 
         contact_fall = False
         # sometimes the robot can be initialized with some ground penetration
         # so do not check for contacts until after the first env step.
-        if self._env.env_step_counter > 0:
+        if self._robot.step_counter > 0:
             robot_ground_contacts = pyb.getContactPoints(
                 bodyA=self._robot.quadruped, bodyB=ground)
 
@@ -601,7 +605,7 @@ class ImitationTask(object):
         """
         ref_col = [1, 1, 1, self._draw_ref_model_alpha]
 
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
         urdf_file = self._robot.GetURDFFile()
         ref_model = pyb.loadURDF(urdf_file, useFixedBase=True)
 
@@ -649,7 +653,7 @@ class ImitationTask(object):
         self._joint_vel_size = np.zeros(num_joints, dtype=np.int32)
 
         for j in range(num_joints):
-            pyb = self._get_pybullet_client()
+            pyb = self._pybullet_client
             j_info = pyb.getJointInfo(self._ref_model, j)
             j_state = pyb.getJointStateMultiDof(self._ref_model, j)
 
@@ -797,7 +801,7 @@ class ImitationTask(object):
           vel: velocity to be applied to the character
         """
         motion = self.get_active_motion()
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
 
         root_pos = motion.get_frame_root_pos(pose)
         root_rot = motion.get_frame_root_rot(pose)
@@ -824,17 +828,13 @@ class ImitationTask(object):
 
         return
 
-    def _get_pybullet_client(self):
-        """Get bullet client from the environment"""
-        return self._env._pybullet_client
-
     def _get_motion_time(self):
         """Get the time since the start of the reference motion."""
         time = self._robot.GetTimeSinceReset()
 
         # Needed to ensure that during deployment, the first timestep will be at
         # time = 0
-        if self._env.env_step_counter == 0:
+        if self._robot.step_counter == 0:
             self._episode_start_time_offset = -time
 
         time += self._motion_time_offset
@@ -849,7 +849,7 @@ class ImitationTask(object):
 
     def _get_num_joints(self):
         """Get the number of joints in the character's body."""
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
         return pyb.getNumJoints(self._ref_model)
 
     def _get_joint_pose_idx(self, j):
@@ -894,25 +894,25 @@ class ImitationTask(object):
         return vel_size
 
     def _get_sim_base_position(self):
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
         pos = pyb.getBasePositionAndOrientation(self._robot.quadruped)[0]
         pos = np.array(pos)
         return pos
 
     def _get_sim_base_rotation(self):
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
         rotation = pyb.getBasePositionAndOrientation(self._robot.quadruped)[1]
         rotation = np.array(rotation)
         return rotation
 
     def _get_ref_base_position(self):
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
         pos = pyb.getBasePositionAndOrientation(self._ref_model)[0]
         pos = np.array(pos)
         return pos
 
     def _get_ref_base_rotation(self):
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
         rotation = pyb.getBasePositionAndOrientation(self._ref_model)[1]
         rotation = np.array(rotation)
         return rotation
@@ -1071,7 +1071,7 @@ class ImitationTask(object):
     def _build_sim_pose(self, phys_model):
         """Build  pose vector from simulated model."""
         pose = np.zeros(self.get_pose_size())
-        pyb = self._get_pybullet_client()
+        pyb = self._pybullet_client
         root_pos, root_rot = pyb.getBasePositionAndOrientation(phys_model)
         root_pos = np.array(root_pos)
         root_rot = np.array(root_rot)
