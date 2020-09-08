@@ -1,7 +1,7 @@
 imitation_learning_laikago:
   robot: "laikago"
   seed: 0
-  num_robot: 1
+  num_robot: 2
   mode: "train"
   output_dir: "output"
   num_test_episodes: 100 # test times

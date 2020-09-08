@@ -94,7 +94,7 @@ class LocomotionGymEnv(gym.Env):
             self._pybullet_client.configureDebugVisualizer(
                 self._pybullet_client.COV_ENABLE_RENDERING, 1)
 
-        if self._task[i] and hasattr(self._task[i], 'reset'):
+        for i in range(self.num_robot):
             self._task[i].reset()
 
         obs = [self._robot[i]._get_observation()

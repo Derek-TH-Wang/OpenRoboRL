@@ -215,169 +215,6 @@ class Minitaur(object):
 
         return
 
-    def GetTimeSinceReset(self):
-        return self._state_action_counter * self.time_step
-
-    def SetAct(self, action):
-        action += self._init_motor_angle
-        self._last_action = action
-        if self._enable_action_filter:
-            self._action = self._FilterAction(action)
-        return
-
-    def RobotStep(self, i):
-        proc_action = self.ProcessAction(self._action, i)
-        self.ApplyAction(proc_action)
-        self._state_action_counter += 1
-        if i == self._action_repeat-1:
-            self._filter_action = self._action
-            self.step_counter += 1
-
-    def GetObs(self):
-        for s in self.GetAllSensors():
-            s.on_step()
-        obs = self._get_observation()
-        return obs
-
-    def Terminate(self):
-        pass
-
-    def GetFootLinkIDs(self):
-        """Get list of IDs for all foot links."""
-        return self._foot_link_ids
-
-    def _RecordMassInfoFromURDF(self):
-        """Records the mass information from the URDF file."""
-        self._base_mass_urdf = []
-        for chassis_id in self._chassis_link_ids:
-            self._base_mass_urdf.append(
-                self._pybullet_client.getDynamicsInfo(self.quadruped, chassis_id)[0])
-        self._leg_masses_urdf = []
-        for leg_id in self._leg_link_ids:
-            self._leg_masses_urdf.append(
-                self._pybullet_client.getDynamicsInfo(self.quadruped, leg_id)[0])
-        for motor_id in self._motor_link_ids:
-            self._leg_masses_urdf.append(
-                self._pybullet_client.getDynamicsInfo(self.quadruped, motor_id)[0])
-
-    def _RecordInertiaInfoFromURDF(self):
-        """Record the inertia of each body from URDF file."""
-        self._link_urdf = []
-        num_bodies = self._pybullet_client.getNumJoints(self.quadruped)
-        for body_id in range(-1, num_bodies):  # -1 is for the base link.
-            inertia = self._pybullet_client.getDynamicsInfo(self.quadruped,
-                                                            body_id)[2]
-            self._link_urdf.append(inertia)
-        # We need to use id+1 to index self._link_urdf because it has the base
-        # (index = -1) at the first element.
-        self._base_inertia_urdf = [
-            self._link_urdf[chassis_id + 1] for chassis_id in self._chassis_link_ids
-        ]
-        self._leg_inertia_urdf = [
-            self._link_urdf[leg_id + 1] for leg_id in self._leg_link_ids
-        ]
-        self._leg_inertia_urdf.extend(
-            [self._link_urdf[motor_id + 1] for motor_id in self._motor_link_ids])
-
-    def _BuildJointNameToIdDict(self):
-        num_joints = self._pybullet_client.getNumJoints(self.quadruped)
-        self._joint_name_to_id = {}
-        for i in range(num_joints):
-            joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
-            self._joint_name_to_id[joint_info[1].decode(
-                "UTF-8")] = joint_info[0]
-
-    def _BuildUrdfIds(self):
-        """Build the link Ids from its name in the URDF file.
-
-        Raises:
-          ValueError: Unknown category of the joint name.
-        """
-        num_joints = self._pybullet_client.getNumJoints(self.quadruped)
-        self._chassis_link_ids = [-1]
-        self._leg_link_ids = []
-        self._motor_link_ids = []
-        self._knee_link_ids = []
-        self._foot_link_ids = []
-
-        for i in range(num_joints):
-            joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
-            joint_name = joint_info[1].decode("UTF-8")
-            joint_id = self._joint_name_to_id[joint_name]
-            if self.pattern[0].match(joint_name):
-                self._chassis_link_ids.append(joint_id)
-            elif self.pattern[1].match(joint_name):
-                self._motor_link_ids.append(joint_id)
-            # We either treat the lower leg or the toe as the foot link, depending on
-            # the urdf version used.
-            elif self.pattern[2].match(joint_name):
-                self._knee_link_ids.append(joint_id)
-            elif self.pattern[3].match(joint_name):
-                self._foot_link_ids.append(joint_id)
-            else:
-                raise ValueError("Unknown category of joint %s" % joint_name)
-
-        self._leg_link_ids.extend(self._knee_link_ids)
-        self._leg_link_ids.extend(self._foot_link_ids)
-        self._foot_link_ids.extend(self._knee_link_ids)
-
-        self._chassis_link_ids.sort()
-        self._motor_link_ids.sort()
-        self._foot_link_ids.sort()
-        self._leg_link_ids.sort()
-
-        return
-
-    def _RemoveDefaultJointDamping(self):
-        num_joints = self._pybullet_client.getNumJoints(self.quadruped)
-        for i in range(num_joints):
-            joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
-            self._pybullet_client.changeDynamics(
-                joint_info[0], -1, linearDamping=0, angularDamping=0)
-
-    def _BuildMotorIdList(self):
-        self._motor_id_list = [
-            self._joint_name_to_id[motor_name]
-            for motor_name in self._GetMotorNames()
-        ]
-
-    def _CreateRackConstraint(self, init_position, init_orientation):
-        """Create a constraint that keeps the chassis at a fixed frame.
-
-        This frame is defined by init_position and init_orientation.
-
-        Args:
-          init_position: initial position of the fixed frame.
-          init_orientation: initial orientation of the fixed frame in quaternion
-            format [x,y,z,w].
-
-        Returns:
-          Return the constraint id.
-        """
-        fixed_constraint = self._pybullet_client.createConstraint(
-            parentBodyUniqueId=self.quadruped,
-            parentLinkIndex=-1,
-            childBodyUniqueId=-1,
-            childLinkIndex=-1,
-            jointType=self._pybullet_client.JOINT_FIXED,
-            jointAxis=[0, 0, 0],
-            parentFramePosition=[0, 0, 0],
-            childFramePosition=init_position,
-            childFrameOrientation=init_orientation)
-        return fixed_constraint
-
-    def IsObservationValid(self):
-        """Whether the observation is valid for the current time step.
-
-        In simulation, observations are always valid. In real hardware, it may not
-        be valid from time to time when communication error happens between the
-        Nvidia TX2 and the microcontroller.
-
-        Returns:
-          Whether the observation is valid for the current time step.
-        """
-        return True
-
     def init_robot(self, sim_handler):
         self._pybullet_client = sim_handler
         self._LoadRobotURDF(self._robot_index)
@@ -456,32 +293,187 @@ class Minitaur(object):
 
         return
 
-    def _LoadRobotURDF(self, robot_index=0):
-        laikago_urdf_path = self.GetURDFFile()
-        pos = copy.deepcopy(self.GetDefaultInitPosition())
-        pos[1] += robot_index
-        ori = self.GetDefaultInitOrientation()
-        if self._self_collision_enabled:
-            self.quadruped = self._pybullet_client.loadURDF(
-                laikago_urdf_path, pos, ori,
-                flags=self._pybullet_client.URDF_USE_SELF_COLLISION)
+    def SetAct(self, action):
+        action += self._init_motor_angle
+        self._last_action = action
+        if self._enable_action_filter:
+            self._action = self._FilterAction(action)
+        return
+
+    def RobotStep(self, i):
+        proc_action = self.ProcessAction(self._action, i)
+        self.ApplyAction(proc_action)
+        self._state_action_counter += 1
+        if i == self._action_repeat-1:
+            self._filter_action = self._action
+            self.step_counter += 1
+
+    def GetObs(self):
+        for s in self.GetAllSensors():
+            s.on_step()
+        obs = self._get_observation()
+        return obs
+
+    def Terminate(self):
+        pass
+
+    def GetTrueObservation(self):
+        observation = []
+        observation.extend(self.GetTrueMotorAngles())
+        observation.extend(self.GetTrueMotorVelocities())
+        observation.extend(self.GetTrueMotorTorques())
+        observation.extend(self.GetTrueBaseOrientation())
+        observation.extend(self.GetTrueBaseRollPitchYawRate())
+        return observation
+
+    def ReceiveObservation(self):
+        """Receive the observation from sensors.
+
+        This function is called once per step. The observations are only updated
+        when this function is called.
+        """
+        self._joint_states = self._pybullet_client.getJointStates(
+            self.quadruped, self._motor_id_list)
+        self._base_position, orientation = (
+            self._pybullet_client.getBasePositionAndOrientation(self.quadruped))
+        # Computes the relative orientation relative to the robot's
+        # initial_orientation.
+        _, _init_orientation_inv = self._pybullet_client.invertTransform(
+            position=[0, 0, 0], orientation=self.GetDefaultInitOrientation())
+        _, self._base_orientation = self._pybullet_client.multiplyTransforms(
+            positionA=[0, 0, 0],
+            orientationA=orientation,
+            positionB=[0, 0, 0],
+            orientationB=_init_orientation_inv)
+        self._observation_history.appendleft(self.GetTrueObservation())
+        self._control_observation = self._GetControlObservation()
+        self.last_state_time = self._state_action_counter * self.time_step
+
+    def _GetDelayedObservation(self, latency):
+        """Get observation that is delayed by the amount specified in latency.
+
+        Args:
+          latency: The latency (in seconds) of the delayed observation.
+
+        Returns:
+          observation: The observation which was actually latency seconds ago.
+        """
+        if latency <= 0 or len(self._observation_history) == 1:
+            observation = self._observation_history[0]
         else:
-            self.quadruped = self._pybullet_client.loadURDF(
-                laikago_urdf_path, pos, ori)
+            n_steps_ago = int(latency / self.time_step)
+            if n_steps_ago + 1 >= len(self._observation_history):
+                return self._observation_history[-1]
+            remaining_latency = latency - n_steps_ago * self.time_step
+            blend_alpha = remaining_latency / self.time_step
+            observation = (
+                (1.0 - blend_alpha) *
+                np.array(self._observation_history[n_steps_ago])
+                + blend_alpha * np.array(self._observation_history[n_steps_ago + 1]))
+        return observation
 
-    def _SetMotorTorqueById(self, motor_id, torque):
-        self._pybullet_client.setJointMotorControl2(
-            bodyIndex=self.quadruped,
-            jointIndex=motor_id,
-            controlMode=self._pybullet_client.TORQUE_CONTROL,
-            force=torque)
+    def _GetPDObservation(self):
+        pd_delayed_observation = self._GetDelayedObservation(self._pd_latency)
+        q = pd_delayed_observation[0:self.num_motors]
+        qdot = pd_delayed_observation[self.num_motors:2 * self.num_motors]
+        return (np.array(q), np.array(qdot))
 
-    def _SetMotorTorqueByIds(self, motor_ids, torques):
-        self._pybullet_client.setJointMotorControlArray(
-            bodyIndex=self.quadruped,
-            jointIndices=motor_ids,
-            controlMode=self._pybullet_client.TORQUE_CONTROL,
-            forces=torques)
+    def _GetControlObservation(self):
+        control_delayed_observation = self._GetDelayedObservation(
+            self._control_latency)
+        return control_delayed_observation
+
+    def _AddSensorNoise(self, sensor_values, noise_stdev):
+        if noise_stdev <= 0:
+            return sensor_values
+        observation = sensor_values + np.random.normal(
+            scale=noise_stdev, size=sensor_values.shape)
+        return observation
+
+    def SetControlLatency(self, latency):
+        """Set the latency of the control loop.
+
+        It measures the duration between sending an action from Nvidia TX2 and
+        receiving the observation from microcontroller.
+
+        Args:
+          latency: The latency (in seconds) of the control loop.
+        """
+        self._control_latency = latency
+
+    def GetControlLatency(self):
+        """Get the control latency.
+
+        Returns:
+          The latency (in seconds) between when the motor command is sent and when
+            the sensor measurements are reported back to the controller.
+        """
+        return self._control_latency
+
+    def GetTimeSinceReset(self):
+        return self._state_action_counter * self.time_step
+
+    def GetFootLinkIDs(self):
+        """Get list of IDs for all foot links."""
+        return self._foot_link_ids
+
+    def SetAllSensors(self, sensors):
+        """set all sensors to this robot and move the ownership to this robot.
+
+        Args:
+          sensors: a list of sensors to this robot.
+        """
+        for s in sensors:
+            s.set_robot(self)
+        self._sensors = sensors
+
+    def GetAllSensors(self):
+        """get all sensors associated with this robot.
+
+        Returns:
+          sensors: a list of all sensors.
+        """
+        return self._sensors
+
+    def GetSensor(self, name):
+        """get the first sensor with the given name.
+
+        This function return None if a sensor with the given name does not exist.
+
+        Args:
+          name: the name of the sensor we are looking
+
+        Returns:
+          sensor: a sensor with the given name. None if not exists.
+        """
+        for s in self._sensors:
+            if s.get_name() == name:
+                return s
+        return None
+
+    def ProcessAction(self, action, substep_count):
+        """If enabled, interpolates between the current and previous actions.
+
+        Args:
+          action: current action.
+          substep_count: the step count should be between [0, self.__action_repeat).
+
+        Returns:
+          If interpolation is enabled, returns interpolated action depending on
+          the current action repeat substep.
+        """
+        if self._enable_action_interpolation:
+            if self._filter_action is not None:
+                prev_action = self._filter_action
+            else:
+                prev_action = self.GetMotorAngles()
+
+            lerp = float(substep_count + 1) / self._action_repeat
+            proc_action = prev_action + lerp * (action - prev_action)
+        else:
+            proc_action = action
+
+        return proc_action
 
     def GetURDFFile(self):
         return self._urdf_file
@@ -549,175 +541,6 @@ class Minitaur(object):
         roll_pitch_yaw = self._AddSensorNoise(
             np.array(delayed_roll_pitch_yaw), self._observation_noise_stdev[3])
         return roll_pitch_yaw
-
-    def ComputeMotorAnglesFromFootLocalPosition(self, leg_id,
-                                                foot_local_position):
-        """Use IK to compute the motor angles, given the foot link's local position.
-
-        Args:
-          leg_id: The leg index.
-          foot_local_position: The foot link's position in the base frame.
-
-        Returns:
-          A tuple. The position indices and the angles for all joints along the
-          leg. The position indices is consistent with the joint orders as returned
-          by GetMotorAngles API.
-        """
-        assert len(self._foot_link_ids) == self.num_legs
-        toe_id = self._foot_link_ids[leg_id]
-
-        motors_per_leg = self.num_motors // self.num_legs
-        joint_position_idxs = [
-            i for i in range(leg_id * motors_per_leg, leg_id * motors_per_leg +
-                             motors_per_leg)
-        ]
-
-        joint_angles = self.joint_angles_from_link_position(
-            robot=self,
-            link_position=foot_local_position,
-            link_id=toe_id,
-            joint_ids=joint_position_idxs,
-        )
-
-        # Joint offset is necessary for Laikago.
-        joint_angles = np.multiply(
-            np.asarray(joint_angles) -
-            np.asarray(self._motor_offset)[joint_position_idxs],
-            self._motor_direction[joint_position_idxs])
-
-        # Return the joing index (the same as when calling GetMotorAngles) as well
-        # as the angles.
-        return joint_position_idxs, joint_angles.tolist()
-
-    def ComputeJacobian(self, leg_id):
-        """Compute the Jacobian for a given leg."""
-        # Does not work for Minitaur which has the four bar mechanism for now.
-        assert len(self._foot_link_ids) == self.num_legs
-        return self.compute_jacobian(
-            robot=self,
-            link_id=self._foot_link_ids[leg_id],
-        )
-
-    def MapContactForceToJointTorques(self, leg_id, contact_force):
-        """Maps the foot contact force to the leg joint torques."""
-        jv = self.ComputeJacobian(leg_id)
-        all_motor_torques = np.matmul(contact_force, jv)
-        motor_torques = {}
-        motors_per_leg = self.num_motors // self.num_legs
-        com_dof = 6
-        for joint_id in range(leg_id * motors_per_leg,
-                              (leg_id + 1) * motors_per_leg):
-            motor_torques[joint_id] = all_motor_torques[
-                com_dof + joint_id] * self._motor_direction[joint_id]
-
-        return motor_torques
-
-    def GetFootPositionsInBaseFrame(self):
-        """Get the robot's foot position in the base frame."""
-        assert len(self._foot_link_ids) == self.num_legs
-        foot_positions = []
-        for foot_id in self.GetFootLinkIDs():
-            foot_positions.append(
-                self.link_position_in_base_frame(
-                    robot=self,
-                    link_id=foot_id,
-                ))
-        return np.array(foot_positions)
-
-    def joint_angles_from_link_position(
-            self,
-            robot: typing.Any,
-            link_position: typing.Sequence[float],
-            link_id: int,
-            joint_ids: typing.Sequence[int],
-            base_translation: typing.Sequence[float] = (0, 0, 0),
-            base_rotation: typing.Sequence[float] = (0, 0, 0, 1)):
-        """Uses Inverse Kinematics to calculate joint angles.
-
-        Args:
-          robot: A robot instance.
-          link_position: The (x, y, z) of the link in the body frame. This local frame
-            is transformed relative to the COM frame using a given translation and
-            rotation.
-          link_id: The link id as returned from loadURDF.
-          joint_ids: The positional index of the joints. This can be different from
-            the joint unique ids.
-          base_translation: Additional base translation.
-          base_rotation: Additional base rotation.
-
-        Returns:
-          A list of joint angles.
-        """
-        # Projects to local frame.
-        base_position, base_orientation = robot.GetBasePosition(
-        ), robot.GetBaseOrientation()
-        base_position, base_orientation = self._pybullet_client.multiplyTransforms(
-            base_position, base_orientation, base_translation, base_rotation)
-
-        # Projects to world space.
-        world_link_pos, _ = self._pybullet_client.multiplyTransforms(
-            base_position, base_orientation, link_position, (0, 0, 0, 1))
-        ik_solver = 0
-        all_joint_angles = self._pybullet_client.calculateInverseKinematics(
-            robot.quadruped, link_id, world_link_pos, solver=ik_solver)
-
-        # Extract the relevant joint angles.
-        joint_angles = [all_joint_angles[i] for i in joint_ids]
-        return joint_angles
-
-    def link_position_in_base_frame(
-        self,
-        robot: typing.Any,
-        link_id: int,
-    ):
-        """Computes the link's local position in the robot frame.
-
-        Args:
-          robot: A robot instance.
-          link_id: The link to calculate its relative position.
-
-        Returns:
-          The relative position of the link.
-        """
-        base_position, base_orientation = robot.GetBasePosition(
-        ), robot.GetBaseOrientation()
-        inverse_translation, inverse_rotation = self._pybullet_client.invertTransform(
-            base_position, base_orientation)
-
-        link_state = self._pybullet_client.getLinkState(
-            robot.quadruped, link_id)
-        link_position = link_state[0]
-        link_local_position, _ = self._pybullet_client.multiplyTransforms(
-            inverse_translation, inverse_rotation, link_position, (0, 0, 0, 1))
-
-        return np.array(link_local_position)
-
-    def compute_jacobian(
-        self,
-        robot: typing.Any,
-        link_id: int,
-    ):
-        """Computes the Jacobian matrix for the given link.
-
-        Args:
-          robot: A robot instance.
-          link_id: The link id as returned from loadURDF.
-
-        Returns:
-          The 3 x N transposed Jacobian matrix. where N is the total DoFs of the
-          robot. For a quadruped, the first 6 columns of the matrix corresponds to
-          the CoM translation and rotation. The columns corresponds to a leg can be
-          extracted with indices [6 + leg_id * 3: 6 + leg_id * 3 + 3].
-        """
-
-        all_joint_angles = [state[0] for state in robot.joint_states]
-        zero_vec = [0] * len(all_joint_angles)
-        jv, _ = self._pybullet_client.calculateJacobian(robot.quadruped, link_id,
-                                                        (0, 0, 0), all_joint_angles,
-                                                        zero_vec, zero_vec)
-        jacobian = np.array(jv)
-        assert jacobian.shape[0] == 3
-        return jacobian
 
     def _get_observation(self):
         """Get observation of this environment from a list of sensors.
@@ -961,31 +784,152 @@ class Minitaur(object):
                 motor_torques.append(0)
         self._SetMotorTorqueByIds(motor_ids, motor_torques)
 
-    def ConvertFromLegModel(self, actions):
-        """Convert the actions that use leg model to the real motor actions.
+    def _RecordMassInfoFromURDF(self):
+        """Records the mass information from the URDF file."""
+        self._base_mass_urdf = []
+        for chassis_id in self._chassis_link_ids:
+            self._base_mass_urdf.append(
+                self._pybullet_client.getDynamicsInfo(self.quadruped, chassis_id)[0])
+        self._leg_masses_urdf = []
+        for leg_id in self._leg_link_ids:
+            self._leg_masses_urdf.append(
+                self._pybullet_client.getDynamicsInfo(self.quadruped, leg_id)[0])
+        for motor_id in self._motor_link_ids:
+            self._leg_masses_urdf.append(
+                self._pybullet_client.getDynamicsInfo(self.quadruped, motor_id)[0])
+
+    def _RecordInertiaInfoFromURDF(self):
+        """Record the inertia of each body from URDF file."""
+        self._link_urdf = []
+        num_bodies = self._pybullet_client.getNumJoints(self.quadruped)
+        for body_id in range(-1, num_bodies):  # -1 is for the base link.
+            inertia = self._pybullet_client.getDynamicsInfo(self.quadruped,
+                                                            body_id)[2]
+            self._link_urdf.append(inertia)
+        # We need to use id+1 to index self._link_urdf because it has the base
+        # (index = -1) at the first element.
+        self._base_inertia_urdf = [
+            self._link_urdf[chassis_id + 1] for chassis_id in self._chassis_link_ids
+        ]
+        self._leg_inertia_urdf = [
+            self._link_urdf[leg_id + 1] for leg_id in self._leg_link_ids
+        ]
+        self._leg_inertia_urdf.extend(
+            [self._link_urdf[motor_id + 1] for motor_id in self._motor_link_ids])
+
+    def _BuildJointNameToIdDict(self):
+        num_joints = self._pybullet_client.getNumJoints(self.quadruped)
+        self._joint_name_to_id = {}
+        for i in range(num_joints):
+            joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
+            self._joint_name_to_id[joint_info[1].decode(
+                "UTF-8")] = joint_info[0]
+
+    def _BuildUrdfIds(self):
+        """Build the link Ids from its name in the URDF file.
+
+        Raises:
+          ValueError: Unknown category of the joint name.
+        """
+        num_joints = self._pybullet_client.getNumJoints(self.quadruped)
+        self._chassis_link_ids = [-1]
+        self._leg_link_ids = []
+        self._motor_link_ids = []
+        self._knee_link_ids = []
+        self._foot_link_ids = []
+
+        for i in range(num_joints):
+            joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
+            joint_name = joint_info[1].decode("UTF-8")
+            joint_id = self._joint_name_to_id[joint_name]
+            if self.pattern[0].match(joint_name):
+                self._chassis_link_ids.append(joint_id)
+            elif self.pattern[1].match(joint_name):
+                self._motor_link_ids.append(joint_id)
+            # We either treat the lower leg or the toe as the foot link, depending on
+            # the urdf version used.
+            elif self.pattern[2].match(joint_name):
+                self._knee_link_ids.append(joint_id)
+            elif self.pattern[3].match(joint_name):
+                self._foot_link_ids.append(joint_id)
+            else:
+                raise ValueError("Unknown category of joint %s" % joint_name)
+
+        self._leg_link_ids.extend(self._knee_link_ids)
+        self._leg_link_ids.extend(self._foot_link_ids)
+        self._foot_link_ids.extend(self._knee_link_ids)
+
+        self._chassis_link_ids.sort()
+        self._motor_link_ids.sort()
+        self._foot_link_ids.sort()
+        self._leg_link_ids.sort()
+
+        return
+
+    def _RemoveDefaultJointDamping(self):
+        num_joints = self._pybullet_client.getNumJoints(self.quadruped)
+        for i in range(num_joints):
+            joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
+            self._pybullet_client.changeDynamics(
+                joint_info[0], -1, linearDamping=0, angularDamping=0)
+
+    def _BuildMotorIdList(self):
+        self._motor_id_list = [
+            self._joint_name_to_id[motor_name]
+            for motor_name in self._GetMotorNames()
+        ]
+
+    def _CreateRackConstraint(self, init_position, init_orientation):
+        """Create a constraint that keeps the chassis at a fixed frame.
+
+        This frame is defined by init_position and init_orientation.
 
         Args:
-          actions: The theta, phi of the leg model.
+          init_position: initial position of the fixed frame.
+          init_orientation: initial orientation of the fixed frame in quaternion
+            format [x,y,z,w].
 
         Returns:
-          The eight desired motor angles that can be used in ApplyActions().
+          Return the constraint id.
         """
-        motor_angle = copy.deepcopy(actions)
-        scale_for_singularity = 1
-        offset_for_singularity = 1.5
-        half_num_motors = self.num_motors // 2
-        quater_pi = math.pi / 4
-        for i in range(self.num_motors):
-            action_idx = i // 2
-            forward_backward_component = (
-                -scale_for_singularity * quater_pi *
-                (actions[action_idx + half_num_motors] + offset_for_singularity))
-            extension_component = (-1)**i * quater_pi * actions[action_idx]
-            if i >= half_num_motors:
-                extension_component = -extension_component
-            motor_angle[i] = (
-                math.pi + forward_backward_component + extension_component)
-        return motor_angle
+        fixed_constraint = self._pybullet_client.createConstraint(
+            parentBodyUniqueId=self.quadruped,
+            parentLinkIndex=-1,
+            childBodyUniqueId=-1,
+            childLinkIndex=-1,
+            jointType=self._pybullet_client.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=[0, 0, 0],
+            childFramePosition=init_position,
+            childFrameOrientation=init_orientation)
+        return fixed_constraint
+
+    def _LoadRobotURDF(self, robot_index=0):
+        laikago_urdf_path = self.GetURDFFile()
+        pos = copy.deepcopy(self.GetDefaultInitPosition())
+        pos[1] += robot_index
+        ori = self.GetDefaultInitOrientation()
+        if self._self_collision_enabled:
+            self.quadruped = self._pybullet_client.loadURDF(
+                laikago_urdf_path, pos, ori,
+                flags=self._pybullet_client.URDF_USE_SELF_COLLISION)
+        else:
+            self.quadruped = self._pybullet_client.loadURDF(
+                laikago_urdf_path, pos, ori)
+
+    def _SetMotorTorqueById(self, motor_id, torque):
+        self._pybullet_client.setJointMotorControl2(
+            bodyIndex=self.quadruped,
+            jointIndex=motor_id,
+            controlMode=self._pybullet_client.TORQUE_CONTROL,
+            force=torque)
+
+    def _SetMotorTorqueByIds(self, motor_ids, torques):
+        self._pybullet_client.setJointMotorControlArray(
+            bodyIndex=self.quadruped,
+            jointIndices=motor_ids,
+            controlMode=self._pybullet_client.TORQUE_CONTROL,
+            forces=torques)
 
     def GetBaseMassesFromURDF(self):
         """Get the mass of the base from the URDF file."""
@@ -1149,99 +1093,6 @@ class Minitaur(object):
     def SetMotorViscousDamping(self, viscous_damping):
         self._motor_model.set_viscous_damping(viscous_damping)
 
-    def GetTrueObservation(self):
-        observation = []
-        observation.extend(self.GetTrueMotorAngles())
-        observation.extend(self.GetTrueMotorVelocities())
-        observation.extend(self.GetTrueMotorTorques())
-        observation.extend(self.GetTrueBaseOrientation())
-        observation.extend(self.GetTrueBaseRollPitchYawRate())
-        return observation
-
-    def ReceiveObservation(self):
-        """Receive the observation from sensors.
-
-        This function is called once per step. The observations are only updated
-        when this function is called.
-        """
-        self._joint_states = self._pybullet_client.getJointStates(
-            self.quadruped, self._motor_id_list)
-        self._base_position, orientation = (
-            self._pybullet_client.getBasePositionAndOrientation(self.quadruped))
-        # Computes the relative orientation relative to the robot's
-        # initial_orientation.
-        _, _init_orientation_inv = self._pybullet_client.invertTransform(
-            position=[0, 0, 0], orientation=self.GetDefaultInitOrientation())
-        _, self._base_orientation = self._pybullet_client.multiplyTransforms(
-            positionA=[0, 0, 0],
-            orientationA=orientation,
-            positionB=[0, 0, 0],
-            orientationB=_init_orientation_inv)
-        self._observation_history.appendleft(self.GetTrueObservation())
-        self._control_observation = self._GetControlObservation()
-        self.last_state_time = self._state_action_counter * self.time_step
-
-    def _GetDelayedObservation(self, latency):
-        """Get observation that is delayed by the amount specified in latency.
-
-        Args:
-          latency: The latency (in seconds) of the delayed observation.
-
-        Returns:
-          observation: The observation which was actually latency seconds ago.
-        """
-        if latency <= 0 or len(self._observation_history) == 1:
-            observation = self._observation_history[0]
-        else:
-            n_steps_ago = int(latency / self.time_step)
-            if n_steps_ago + 1 >= len(self._observation_history):
-                return self._observation_history[-1]
-            remaining_latency = latency - n_steps_ago * self.time_step
-            blend_alpha = remaining_latency / self.time_step
-            observation = (
-                (1.0 - blend_alpha) *
-                np.array(self._observation_history[n_steps_ago])
-                + blend_alpha * np.array(self._observation_history[n_steps_ago + 1]))
-        return observation
-
-    def _GetPDObservation(self):
-        pd_delayed_observation = self._GetDelayedObservation(self._pd_latency)
-        q = pd_delayed_observation[0:self.num_motors]
-        qdot = pd_delayed_observation[self.num_motors:2 * self.num_motors]
-        return (np.array(q), np.array(qdot))
-
-    def _GetControlObservation(self):
-        control_delayed_observation = self._GetDelayedObservation(
-            self._control_latency)
-        return control_delayed_observation
-
-    def _AddSensorNoise(self, sensor_values, noise_stdev):
-        if noise_stdev <= 0:
-            return sensor_values
-        observation = sensor_values + np.random.normal(
-            scale=noise_stdev, size=sensor_values.shape)
-        return observation
-
-    def SetControlLatency(self, latency):
-        """Set the latency of the control loop.
-
-        It measures the duration between sending an action from Nvidia TX2 and
-        receiving the observation from microcontroller.
-
-        Args:
-          latency: The latency (in seconds) of the control loop.
-        """
-        self._control_latency = latency
-
-    def GetControlLatency(self):
-        """Get the control latency.
-
-        Returns:
-          The latency (in seconds) between when the motor command is sent and when
-            the sensor measurements are reported back to the controller.
-        """
-        return self._control_latency
-
     def SetMotorGains(self, kp, kd):
         """Set the gains of all motors.
 
@@ -1319,76 +1170,6 @@ class Minitaur(object):
     def _GetMotorNames(self):
         return self.name_motor
 
-    @property
-    def chassis_link_ids(self):
-        return self._chassis_link_ids
-
-    def SetAllSensors(self, sensors):
-        """set all sensors to this robot and move the ownership to this robot.
-
-        Args:
-          sensors: a list of sensors to this robot.
-        """
-        for s in sensors:
-            s.set_robot(self)
-        self._sensors = sensors
-
-    def GetAllSensors(self):
-        """get all sensors associated with this robot.
-
-        Returns:
-          sensors: a list of all sensors.
-        """
-        return self._sensors
-
-    def GetSensor(self, name):
-        """get the first sensor with the given name.
-
-        This function return None if a sensor with the given name does not exist.
-
-        Args:
-          name: the name of the sensor we are looking
-
-        Returns:
-          sensor: a sensor with the given name. None if not exists.
-        """
-        for s in self._sensors:
-            if s.get_name() == name:
-                return s
-        return None
-
-    @property
-    def is_safe(self):
-        return self._is_safe
-
-    @property
-    def last_action(self):
-        return self._last_action
-
-    def ProcessAction(self, action, substep_count):
-        """If enabled, interpolates between the current and previous actions.
-
-        Args:
-          action: current action.
-          substep_count: the step count should be between [0, self.__action_repeat).
-
-        Returns:
-          If interpolation is enabled, returns interpolated action depending on
-          the current action repeat substep.
-        """
-        if self._enable_action_interpolation:
-            if self._filter_action is not None:
-                prev_action = self._filter_action
-            else:
-                prev_action = self.GetMotorAngles()
-
-            lerp = float(substep_count + 1) / self._action_repeat
-            proc_action = prev_action + lerp * (action - prev_action)
-        else:
-            proc_action = action
-
-        return proc_action
-
     def _BuildActionFilter(self):
         sampling_rate = 1 / (self.time_step * self._action_repeat)
         num_joints = self.GetActionDimension()
@@ -1442,3 +1223,15 @@ class Minitaur(object):
     @property
     def randomizer(self):
         return self._randomizers
+
+    @property
+    def chassis_link_ids(self):
+        return self._chassis_link_ids
+
+    @property
+    def is_safe(self):
+        return self._is_safe
+
+    @property
+    def last_action(self):
+        return self._last_action
