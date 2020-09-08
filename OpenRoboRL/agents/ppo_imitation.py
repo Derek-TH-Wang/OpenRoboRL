@@ -65,7 +65,7 @@ def total_episode_reward_logger(rew_acc, rewards, writer, steps, writer_step):
 
     return rew_acc
 
-def add_vtarg_and_adv(seg, gamma, lam):
+def add_vtarg_and_adv(seg, num_robot, gamma, lam):
   """
   Compute target value using TD(lambda) estimator, and advantage with GAE(lambda)
 
@@ -81,10 +81,11 @@ def add_vtarg_and_adv(seg, gamma, lam):
   seg["adv"] = np.empty(rew_len, 'float32')
   rewards = seg["rewards"]
   lastgaelam = 0
-  for step in reversed(range(rew_len)):
-    nonterminal = 1 - float(episode_starts[step + 1])
-    delta = rewards[step] + gamma * nexvpreds[step] - vpred[step]
-    seg["adv"][step] = lastgaelam = delta + gamma * lam * nonterminal * lastgaelam
+  for step in reversed(range(int(rew_len/num_robot))):
+      for i in range(num_robot):
+        nonterminal = 1 - float(episode_starts[step*num_robot + i + 1])
+        delta = rewards[step*num_robot + i] + gamma * nexvpreds[step*num_robot + i] - vpred[step*num_robot + i]
+        seg["adv"][step*num_robot + i] = lastgaelam = delta + gamma * lam * nonterminal * lastgaelam
   seg["tdlamret"] = seg["adv"] + seg["vpred"]
 
   return
@@ -123,6 +124,10 @@ class PPOImitation(pposgd_simple.PPO1):
                  optim_epochs=4, optim_stepsize=1e-3, optim_batchsize=64, lam=0.95, adam_epsilon=1e-5,
                  schedule='linear', verbose=0, tensorboard_log=None, _init_setup_model=True,
                  policy_kwargs=None, full_tensorboard_log=False, seed=None, n_cpu_tf_sess=1):
+
+        self.num_robot = env.num_robot
+        if timesteps_per_actorbatch % self.num_robot != 0:
+            timesteps_per_actorbatch += (self.num_robot - timesteps_per_actorbatch % self.num_robot)
 
         super().__init__(policy=policy,
                          env=env,
@@ -301,7 +306,7 @@ class PPOImitation(pposgd_simple.PPO1):
                     if not seg.get('continue_training', True):  # pytype: disable=attribute-error
                         break
 
-                    add_vtarg_and_adv(seg, self.gamma, self.lam)
+                    add_vtarg_and_adv(seg, self.num_robot, self.gamma, self.lam)
 
                     # ob, ac, atarg, ret, td1ret = map(np.concatenate, (obs, acs, atargs, rets, td1rets))
                     observations, actions = seg["observations"], seg["actions"]
