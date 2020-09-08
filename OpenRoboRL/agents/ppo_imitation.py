@@ -24,7 +24,7 @@ from stable_baselines.common import Dataset, explained_variance, fmt_row, zipsam
   TensorboardWriter
 from stable_baselines import logger
 import stable_baselines.common.tf_util as tf_util
-from stable_baselines.common.tf_util import total_episode_reward_logger
+# from stable_baselines.common.tf_util import total_episode_reward_logger
 from stable_baselines.common.policies import ActorCriticPolicy
 from stable_baselines.common.mpi_adam import MpiAdam
 from stable_baselines.common.mpi_moments import mpi_moments
@@ -35,6 +35,35 @@ from stable_baselines.ppo1 import pposgd_simple
 
 from agents.imitation_runners import traj_segment_generator
 
+
+
+def total_episode_reward_logger(rew_acc, rewards, writer, steps, writer_step):
+    """
+    calculates the cumulated episode reward, and prints to tensorflow log the output
+
+    :param rew_acc: (np.array float) the total running reward
+    :param rewards: (np.array float) the rewards
+    :param writer: (TensorFlow Session.writer) the writer to log to
+    :param steps: (int) the current timestep
+    :return: (np.array float) the updated total running reward
+    """
+    with tf.variable_scope("environment_info", reuse=True):
+        for env_idx in range(rewards.shape[0]):
+            idx = [writer_step*(i+1) for i in range(int(rewards.shape[1]/writer_step))]
+
+            if len(idx) == 0:
+                rew_acc[env_idx] += sum(rewards[env_idx])
+            else:
+                rew_acc[env_idx] += sum(rewards[env_idx, :idx[0]])
+                summary = tf.Summary(value=[tf.Summary.Value(tag="episode_reward", simple_value=rew_acc[env_idx])])
+                writer.add_summary(summary, steps + idx[0])
+                for k in range(1, len(idx)):
+                    rew_acc[env_idx] = sum(rewards[env_idx, idx[k - 1]:idx[k]])
+                    summary = tf.Summary(value=[tf.Summary.Value(tag="episode_reward", simple_value=rew_acc[env_idx])])
+                    writer.add_summary(summary, steps + idx[k])
+                rew_acc[env_idx] = sum(rewards[env_idx, idx[-1]:])
+
+    return rew_acc
 
 def add_vtarg_and_adv(seg, gamma, lam):
   """
@@ -282,8 +311,7 @@ class PPOImitation(pposgd_simple.PPO1):
                     if writer is not None:
                         total_episode_reward_logger(self.episode_reward,
                                                     seg["true_rewards"].reshape((self.n_envs, -1)),
-                                                    seg["dones"].reshape((self.n_envs, -1)),
-                                                    writer, self.num_timesteps)
+                                                    writer, self.num_timesteps, int(self.timesteps_per_actorbatch/100)) # step write reward sum
 
                     # predicted value function before udpate
                     vpredbefore = seg["vpred"]
