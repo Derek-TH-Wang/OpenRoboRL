@@ -154,17 +154,17 @@ class ImitationTask(object):
 
         return
 
-    def _init_task(self, sim_handler, ground_id, env_time_step):
+    def _init_task(self, robot, sim_handler, ground_id, env_time_step):
+        self._robot = robot
         self._pybullet_client = sim_handler
         self._ground = ground_id
         self._env_time_step = env_time_step
 
-    def __call__(self):
+    def cal_reward(self):
         return self.reward()
 
-    def reset(self, robot):
+    def reset(self):
         """Resets the internal state of the task."""
-        self._robot = robot
         self._last_base_position = self._get_sim_base_position()
         self._episode_start_time_offset = 0.0
 
@@ -1067,35 +1067,6 @@ class ImitationTask(object):
         self._clip_change_time = change_time
 
         return
-
-    def _build_sim_pose(self, phys_model):
-        """Build  pose vector from simulated model."""
-        pose = np.zeros(self.get_pose_size())
-        pyb = self._pybullet_client
-        root_pos, root_rot = pyb.getBasePositionAndOrientation(phys_model)
-        root_pos = np.array(root_pos)
-        root_rot = np.array(root_rot)
-
-        joint_pose = []
-
-        num_joints = self._get_num_joints()
-        for j in range(num_joints):
-            j_state_sim = pyb.getJointStateMultiDof(phys_model, j)
-            j_pose_sim = np.array(j_state_sim[0])
-
-            j_size_sim = len(j_pose_sim)
-
-            if j_size_sim > 0:
-                joint_pose.append(j_pose_sim)
-
-        joint_pose = np.concatenate(joint_pose)
-
-        motion = self.get_active_motion()
-        motion.set_frame_root_pos(root_pos, pose)
-        motion.set_frame_root_rot(root_rot, pose)
-        motion.set_frame_joints(joint_pose, pose)
-
-        return pose
 
     def _get_default_root_rotation(self):
         """Get default root rotation."""

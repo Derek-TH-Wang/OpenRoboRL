@@ -95,7 +95,7 @@ class LocomotionGymEnv(gym.Env):
                 self._pybullet_client.COV_ENABLE_RENDERING, 1)
 
         if self._task[i] and hasattr(self._task[i], 'reset'):
-            self._task[i].reset(self._robot[i])
+            self._task[i].reset()
 
         obs = [self._robot[i]._get_observation()
                for i in range(self.num_robot)]
@@ -206,7 +206,8 @@ class LocomotionGymEnv(gym.Env):
 
         for i in range(self.num_robot):
             self._robot[i].init_robot(self._pybullet_client)
-            self._task[i]._init_task(self._pybullet_client, self.get_ground(), self._env_time_step)
+            self._task[i]._init_task(
+                self._robot[i], self._pybullet_client, self.get_ground(), self._env_time_step)
         self.reset()
 
     def _step(self, action):
@@ -246,7 +247,7 @@ class LocomotionGymEnv(gym.Env):
 
     def _reward(self, task):
         if task:
-            return task()
+            return task.cal_reward()
         return 0
 
     def _flatten_observation_spaces(self, observation_spaces, observation_excluded=()):
