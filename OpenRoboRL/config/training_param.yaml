@@ -12,8 +12,8 @@ imitation_learning_laikago:
   optim_batchsize: 256
   enable_env_randomizer: True
 
-  motion_file: "OpenRoboRL/envs/quadruped_robot/task/motions/dog_pace.txt"
-  model_file: "OpenRoboRL/envs/quadruped_robot/task/policies/dog_pace.zip"
+  motion_file: "OpenRoboRL/envs/quadruped_robot/task/motions/laikago_pace.txt"
+  model_file: "OpenRoboRL/envs/quadruped_robot/task/policies/laikago_pace.zip"
   # model_file: "model.zip"
   # model_file: ""
 
@@ -31,7 +31,7 @@ imitation_learning_minicheetah:
   optim_batchsize: 256
   enable_env_randomizer: True
 
-  motion_file: "OpenRoboRL/envs/quadruped_robot/task/motions/dog_trot_mini_cheetah.txt"
-  model_file: "OpenRoboRL/envs/quadruped_robot/task/policies/mini_cheetah_trot.zip"
+  motion_file: "OpenRoboRL/envs/quadruped_robot/task/motions/minicheetah_trot.txt"
+  model_file: "OpenRoboRL/envs/quadruped_robot/task/policies/minicheetah_trot.zip"
   # model_file: "model.zip"
   # model_file: ""

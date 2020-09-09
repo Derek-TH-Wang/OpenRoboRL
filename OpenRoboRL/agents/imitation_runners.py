@@ -172,8 +172,8 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
                 return
 
         for j in range(num_robot):
-            rewards[i+j] = reward[0]
-            true_rewards[i+j] = true_reward[0]
+            rewards[i+j] = reward[j]
+            true_rewards[i+j] = true_reward[j]
             dones[i+j] = done[j]
             episode_start[j] = done[j]
 

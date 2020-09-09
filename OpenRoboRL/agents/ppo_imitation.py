@@ -30,7 +30,7 @@ from stable_baselines.common.mpi_adam import MpiAdam
 from stable_baselines.common.mpi_moments import mpi_moments
 from stable_baselines.common.misc_util import flatten_lists
 from stable_baselines.common.runners import traj_segment_generator
-from stable_baselines.trpo_mpi.utils import add_vtarg_and_adv
+# from stable_baselines.trpo_mpi.utils import add_vtarg_and_adv
 from stable_baselines.ppo1 import pposgd_simple
 
 from agents.imitation_runners import traj_segment_generator
@@ -74,18 +74,20 @@ def add_vtarg_and_adv(seg, num_robot, gamma, lam):
   :param lam: (float) GAE factor
   """
   # last element is only used for last vtarg, but we already zeroed it if last new = 1
-  episode_starts = np.append(seg["episode_starts"], False)
+  episode_starts = np.append(seg["episode_starts"], [False]*num_robot)
   vpred = seg["vpred"]
   nexvpreds = seg["nextvpreds"]
   rew_len = len(seg["rewards"])
   seg["adv"] = np.empty(rew_len, 'float32')
   rewards = seg["rewards"]
-  lastgaelam = 0
+  lastgaelam = [0] * num_robot
+  nonterminal = [0] * num_robot
+  delta = [0] * num_robot
   for step in reversed(range(int(rew_len/num_robot))):
       for i in range(num_robot):
-        nonterminal = 1 - float(episode_starts[step*num_robot + i + 1])
-        delta = rewards[step*num_robot + i] + gamma * nexvpreds[step*num_robot + i] - vpred[step*num_robot + i]
-        seg["adv"][step*num_robot + i] = lastgaelam = delta + gamma * lam * nonterminal * lastgaelam
+        nonterminal[i] = 1 - float(episode_starts[(step*num_robot+i) + (1+i)])
+        delta[i] = rewards[step*num_robot + i] + gamma * nexvpreds[step*num_robot + i] - vpred[step*num_robot + i]
+        seg["adv"][step*num_robot + i] = lastgaelam[i] = delta[i] + gamma * lam * nonterminal[i] * lastgaelam[i]
   seg["tdlamret"] = seg["adv"] + seg["vpred"]
 
   return
@@ -322,7 +324,18 @@ class PPOImitation(pposgd_simple.PPO1):
                     vpredbefore = seg["vpred"]
 
                     # standardized advantage function estimate
-                    atarg = (atarg - atarg.mean()) / atarg.std()
+                    # atarg = (atarg - atarg.mean()) / atarg.std()
+                    temp_atarg = [[] for _ in range(self.num_robot)]
+                    for i in range(int(self.timesteps_per_actorbatch/self.num_robot)):
+                        for j in range(self.num_robot):
+                            temp_atarg[j].append(atarg[i*self.num_robot+j])
+                    for i in range(self.num_robot):
+                        temp_atarg[i] = np.array(temp_atarg[i])
+                        temp_atarg[i] = (temp_atarg[i] - temp_atarg[i].mean()) / temp_atarg[i].std()
+                    for i in range(int(self.timesteps_per_actorbatch/self.num_robot)):
+                        for j in range(self.num_robot):
+                            atarg[i*self.num_robot+j] = temp_atarg[j][i]
+
                     dataset = Dataset(dict(ob=observations, ac=actions, atarg=atarg, vtarg=tdlamret),
                                       shuffle=not self.policy.recurrent)
                     optim_batchsize = self.optim_batchsize or observations.shape[0]

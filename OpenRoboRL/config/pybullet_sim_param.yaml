@@ -1,6 +1,5 @@
 quadruped_robot:
-  enable_rendering: True
+  enable_rendering: False
   sim_time_step_s: 0.001
-  enable_hard_reset: False
   enable_rendering_gui: True
   num_sim_iter_step: 300
