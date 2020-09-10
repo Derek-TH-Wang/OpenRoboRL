@@ -133,7 +133,7 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
             episode_starts[i+j] = episode_start[j]
 
             if (not episode_start[j]) and (i > 0):
-                nextvpreds[i-1+j] = vpred[j][0]
+                nextvpreds[i-num_robot+j] = vpred[j][0]
 
         clipped_action = [0 for _ in range(num_robot)]
         # Clip the actions to avoid out of bound error
