@@ -268,7 +268,7 @@ class ImitationTask(object):
 
         robot = self._robot
         ref_base_pos = self._get_ref_base_position()
-        sim_base_rot = np.array(robot.GetBaseOrientation())
+        sim_base_rot = np.array(robot.get_base_orientation())
 
         heading = pose3d.calc_heading(sim_base_rot)
         if self._tar_obs_noise is not None:
@@ -530,7 +530,7 @@ class ImitationTask(object):
 
         pyb = self._pybullet_client
         motion_over = self.is_motion_over()
-        foot_links = self._robot.GetFootLinkIDs()
+        foot_links = self._robot.get_foot_link_ids()
         ground = self._ground
 
         contact_fall = False
@@ -606,7 +606,7 @@ class ImitationTask(object):
         ref_col = [1, 1, 1, self._draw_ref_model_alpha]
 
         pyb = self._pybullet_client
-        urdf_file = self._robot.GetURDFFile()
+        urdf_file = self._robot.get_urdf_file()
         ref_model = pyb.loadURDF(urdf_file, useFixedBase=True)
 
         pyb.changeDynamics(ref_model, -1, linearDamping=0, angularDamping=0)
@@ -789,7 +789,7 @@ class ImitationTask(object):
             pose, vel = self._apply_state_perturb(pose, vel)
 
         self._set_state(self._robot.quadruped, pose, vel)
-        self._robot.ReceiveObservation()
+        self._robot.receive_obs()
         return
 
     def _set_state(self, phys_model, pose, vel):
@@ -830,7 +830,7 @@ class ImitationTask(object):
 
     def _get_motion_time(self):
         """Get the time since the start of the reference motion."""
-        time = self._robot.GetTimeSinceReset()
+        time = self._robot.get_time_since_reset()
 
         # Needed to ensure that during deployment, the first timestep will be at
         # time = 0
@@ -1243,9 +1243,9 @@ class ImitationTask(object):
         return perturb_pose, perturb_vel
 
     def _record_default_pose(self):
-        root_pos = self._robot.GetDefaultInitPosition()
-        root_rot = self._robot.GetDefaultInitOrientation()
-        joint_pose = self._robot.GetDefaultInitJointPose()
+        root_pos = self._robot.get_default_init_pos()
+        root_rot = self._robot.get_default_init_ori()
+        joint_pose = self._robot.get_default_init_joint_pos()
 
         pose = np.concatenate([root_pos, root_rot, joint_pose])
 

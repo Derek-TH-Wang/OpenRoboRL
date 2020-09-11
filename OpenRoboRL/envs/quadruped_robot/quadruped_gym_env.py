@@ -82,7 +82,7 @@ class LocomotionGymEnv(gym.Env):
 
         # Reset the pose of the robot.
         for i in range(self.num_robot):
-            self._robot[i].Reset()
+            self._robot[i].reset()
 
         self._pybullet_client.setPhysicsEngineParameter(enableConeFriction=0)
         self._env_step_counter = 0
@@ -149,7 +149,7 @@ class LocomotionGymEnv(gym.Env):
     def close(self):
         if hasattr(self, '_robot') and self._robot:
             for i in range(self.num_robot):
-                self._robot[i].Terminate()
+                self._robot[i].terminate()
 
     def get_ground(self):
         """Get simulation ground model."""
@@ -216,15 +216,15 @@ class LocomotionGymEnv(gym.Env):
         reward = [0 for _ in range(self.num_robot)]
 
         for i in range(self.num_robot):
-            self._robot[i].SetAct(action[i])
+            self._robot[i].set_act(action[i])
         for i in range(self._robot[0].action_repeat):
             for j in range(self.num_robot):
-                self._robot[j].RobotStep(i)
+                self._robot[j].robot_step(i)
             self._pybullet_client.stepSimulation()
             for j in range(self.num_robot):
-                self._robot[j].ReceiveObservation()
+                self._robot[j].receive_obs()
         for i in range(self.num_robot):
-            obs[i] = self._robot[i].GetObs()
+            obs[i] = self._robot[i].get_obs()
         obs = self._flatten_observation(obs)
 
         for i in range(self.num_robot):
@@ -235,7 +235,7 @@ class LocomotionGymEnv(gym.Env):
             self._env_step_counter += 1
 
             if done[i]:
-                self._robot[i].Terminate()
+                self._robot[i].terminate()
         return obs, reward, done
 
     def _termination(self, task, robot):

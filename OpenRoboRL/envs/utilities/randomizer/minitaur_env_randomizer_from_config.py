@@ -100,66 +100,66 @@ class MinitaurEnvRandomizerFromConfig(env_randomizer_base.EnvRandomizerBase):
     tf.logging.info("control step is: {}".format(randomized_control_step))
 
   def _randomize_masses(self, minitaur, lower_bound, upper_bound):
-    base_mass = minitaur.GetBaseMassesFromURDF()
+    base_mass = minitaur.get_base_mass_from_urdf()
     random_base_ratio = random.uniform(lower_bound, upper_bound)
     randomized_base_mass = random_base_ratio * np.array(base_mass)
-    minitaur.SetBaseMasses(randomized_base_mass)
+    minitaur.set_base_mass(randomized_base_mass)
     tf.logging.info("base mass is: {}".format(randomized_base_mass))
 
-    leg_masses = minitaur.GetLegMassesFromURDF()
+    leg_masses = minitaur.get_leg_mass_from_urdf()
     random_leg_ratio = random.uniform(lower_bound, upper_bound)
     randomized_leg_masses = random_leg_ratio * np.array(leg_masses)
-    minitaur.SetLegMasses(randomized_leg_masses)
+    minitaur.set_leg_mass(randomized_leg_masses)
     tf.logging.info("leg mass is: {}".format(randomized_leg_masses))
 
   def _randomize_inertia(self, minitaur, lower_bound, upper_bound):
-    base_inertia = minitaur.GetBaseInertiasFromURDF()
+    base_inertia = minitaur.get_base_inertia_from_urdf()
     random_base_ratio = random.uniform(lower_bound, upper_bound)
     randomized_base_inertia = random_base_ratio * np.array(base_inertia)
-    minitaur.SetBaseInertias(randomized_base_inertia)
+    minitaur.set_base_inertia(randomized_base_inertia)
     tf.logging.info("base inertia is: {}".format(randomized_base_inertia))
-    leg_inertia = minitaur.GetLegInertiasFromURDF()
+    leg_inertia = minitaur.get_leg_inertia_from_urdf()
     random_leg_ratio = random.uniform(lower_bound, upper_bound)
     randomized_leg_inertia = random_leg_ratio * np.array(leg_inertia)
-    minitaur.SetLegInertias(randomized_leg_inertia)
+    minitaur.set_leg_inertia(randomized_leg_inertia)
     tf.logging.info("leg inertia is: {}".format(randomized_leg_inertia))
 
   def _randomize_latency(self, minitaur, lower_bound, upper_bound):
     randomized_latency = random.uniform(lower_bound, upper_bound)
-    minitaur.SetControlLatency(randomized_latency)
+    minitaur.set_ctrl_latency(randomized_latency)
     tf.logging.info("control latency is: {}".format(randomized_latency))
 
   def _randomize_joint_friction(self, minitaur, lower_bound, upper_bound):
-    num_knee_joints = minitaur.GetNumKneeJoints()
+    num_knee_joints = minitaur.get_num_knee_joints()
     randomized_joint_frictions = np.random.uniform(
         [lower_bound] * num_knee_joints, [upper_bound] * num_knee_joints)
-    minitaur.SetJointFriction(randomized_joint_frictions)
+    minitaur.set_joint_friction(randomized_joint_frictions)
     tf.logging.info("joint friction is: {}".format(randomized_joint_frictions))
 
   def _randomize_motor_friction(self, minitaur, lower_bound, upper_bound):
     randomized_motor_damping = random.uniform(lower_bound, upper_bound)
-    minitaur.SetMotorViscousDamping(randomized_motor_damping)
+    minitaur.set_motor_viscous_damping(randomized_motor_damping)
     tf.logging.info("motor friction is: {}".format(randomized_motor_damping))
 
   def _randomize_contact_restitution(self, minitaur, lower_bound, upper_bound):
     randomized_restitution = random.uniform(lower_bound, upper_bound)
-    minitaur.SetFootRestitution(randomized_restitution)
+    minitaur.set_foot_restitution(randomized_restitution)
     tf.logging.info("foot restitution is: {}".format(randomized_restitution))
 
   def _randomize_contact_friction(self, minitaur, lower_bound, upper_bound):
     randomized_foot_friction = random.uniform(lower_bound, upper_bound)
-    minitaur.SetFootFriction(randomized_foot_friction)
+    minitaur.set_foot_friction(randomized_foot_friction)
     tf.logging.info("foot friction is: {}".format(randomized_foot_friction))
 
   def _randomize_battery_level(self, minitaur, lower_bound, upper_bound):
     randomized_battery_voltage = random.uniform(lower_bound, upper_bound)
-    minitaur.SetBatteryVoltage(randomized_battery_voltage)
+    minitaur.set_battery_voltage(randomized_battery_voltage)
     tf.logging.info("battery voltage is: {}".format(randomized_battery_voltage))
 
   def _randomize_motor_strength(self, minitaur, lower_bound, upper_bound):
     randomized_motor_strength_ratios = np.random.uniform(
         [lower_bound] * minitaur.num_motors,
         [upper_bound] * minitaur.num_motors)
-    minitaur.SetMotorStrengthRatios(randomized_motor_strength_ratios)
+    minitaur.set_motor_strength_ratios(randomized_motor_strength_ratios)
     tf.logging.info(
         "motor strength is: {}".format(randomized_motor_strength_ratios))

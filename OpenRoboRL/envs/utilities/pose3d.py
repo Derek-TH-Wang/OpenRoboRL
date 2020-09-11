@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import math
 from absl import logging
 import numpy as np
@@ -353,3 +354,21 @@ def calc_heading_rot(q):
   heading = calc_heading(q)
   q_heading = transformations.quaternion_about_axis(heading, [0, 0, 1])
   return q_heading
+
+def MapToMinusPiToPi(angles):
+    """Maps a list of angles to [-pi, pi].
+
+    Args:
+      angles: A list of angles in rad.
+
+    Returns:
+      A list of angle mapped to [-pi, pi].
+    """
+    mapped_angles = copy.deepcopy(angles)
+    for i in range(len(angles)):
+        mapped_angles[i] = math.fmod(angles[i], 2 * math.pi)
+        if mapped_angles[i] >= math.pi:
+            mapped_angles[i] -= 2 * math.pi
+        elif mapped_angles[i] < -math.pi:
+            mapped_angles[i] += 2 * math.pi
+    return mapped_angles

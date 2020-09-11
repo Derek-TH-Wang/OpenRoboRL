@@ -33,24 +33,7 @@ from envs.utilities.sensors import environment_sensors
 from envs.utilities.sensors import sensor_wrappers
 from envs.utilities.sensors import robot_sensors
 from envs.utilities.randomizer import controllable_env_randomizer_from_config
-
-def MapToMinusPiToPi(angles):
-    """Maps a list of angles to [-pi, pi].
-
-    Args:
-      angles: A list of angles in rad.
-
-    Returns:
-      A list of angle mapped to [-pi, pi].
-    """
-    mapped_angles = copy.deepcopy(angles)
-    for i in range(len(angles)):
-        mapped_angles[i] = math.fmod(angles[i], 2 * math.pi)
-        if mapped_angles[i] >= math.pi:
-            mapped_angles[i] -= 2 * math.pi
-        elif mapped_angles[i] < -math.pi:
-            mapped_angles[i] += 2 * math.pi
-    return mapped_angles
+from envs.utilities import pose3d
 
 
 class Minitaur(object):
@@ -65,7 +48,7 @@ class Minitaur(object):
           num_motors: The number of the motors on the robot.
           dofs_per_leg: The number of degrees of freedom for each leg.
           time_step: The time step of the simulation.
-          action_repeat: The number of ApplyAction() for each control step.
+          action_repeat: The number of apply_action() for each control step.
           self_collision_enabled: Whether to enable self collision.
           motor_control_mode: Enum. Can either be POSITION, TORQUE, or HYBRID.
           motor_model_class: We can choose from simple pd model to more accureate DC
@@ -87,7 +70,7 @@ class Minitaur(object):
             base_roll_pitch_yaw, base_angular_velocity]
           motor_overheat_protection: Whether to shutdown the motor that has exerted
             large torque (OVERHEAT_SHUTDOWN_TORQUE) for an extended amount of time
-            (OVERHEAT_SHUTDOWN_TIME). See ApplyAction() in minitaur.py for more
+            (OVERHEAT_SHUTDOWN_TIME). See apply_action() in minitaur.py for more
             details.
           motor_direction: A list of direction values, either 1 or -1, to compensate
             the axis difference of motors between the simulation and the real robot.
@@ -157,14 +140,14 @@ class Minitaur(object):
             wrapped_sensor=robot_sensors.IMUSensor(), num_history=3),
             sensor_wrappers.HistoricSensorWrapper(
             wrapped_sensor=environment_sensors.LastActionSensor(num_actions=self.num_motors), num_history=3)]
-        self.SetAllSensors(sensor)
+        self.set_all_sensors(sensor)
 
         self.action_space = spaces.Box(
             np.array([-2*math.pi]*12),
             np.array([2*math.pi]*12),
             dtype=np.float32)
         gym_space_dict = {}
-        for s in self.GetAllSensors():
+        for s in self.get_all_sensors():
             gym_space_dict[s.get_name()] = spaces.Box(
                 np.array(s.get_lower_bound()),
                 np.array(s.get_upper_bound()),
@@ -206,7 +189,7 @@ class Minitaur(object):
         self._state_action_counter = 0
 
         if self._enable_action_filter:
-            self._action_filter = self._BuildActionFilter()
+            self._action_filter = self._build_action_filter()
 
         self._randomizers = []
         randomizer = controllable_env_randomizer_from_config.ControllableEnvRandomizerFromConfig(
@@ -217,18 +200,18 @@ class Minitaur(object):
 
     def init_robot(self, sim_handler):
         self._pybullet_client = sim_handler
-        self._LoadRobotURDF(self._robot_index)
+        self._load_urdf(self._robot_index)
         if self._on_rack:
             self.rack_constraint = (
-                self._CreateRackConstraint(self.GetDefaultInitPosition(),
-                                           self.GetDefaultInitOrientation()))
-        self._BuildJointNameToIdDict()
-        self._BuildUrdfIds()
-        self._RemoveDefaultJointDamping()
-        self._BuildMotorIdList()
-        self._RecordMassInfoFromURDF()
-        self._RecordInertiaInfoFromURDF()
-        self.ResetPose(add_constraint=True)
+                self._create_rack_constraint(self.get_default_init_pos(),
+                                           self.get_default_init_ori()))
+        self._build_joint_name_to_dict()
+        self._build_urdf_ids()
+        self._remove_default_joint_damping()
+        self._build_motor_id_list()
+        self._record_mass_from_urdf()
+        self._record_inertia_from_urdf()
+        self.reset_pose(add_constraint=True)
 
         self._overheat_counter = np.zeros(self.num_motors)
         self._motor_enabled_list = [True] * self.num_motors
@@ -239,14 +222,14 @@ class Minitaur(object):
         self._filter_action = None
         self._last_action = np.zeros(self.num_motors)
 
-        self.ReceiveObservation()
+        self.receive_obs()
 
         if self._enable_action_filter:
-            self._ResetActionFilter()
+            self._reset_action_filter()
 
         return
 
-    def Reset(self):
+    def reset(self):
         """Reset the minitaur to its initial states.
 
         Args:
@@ -260,14 +243,14 @@ class Minitaur(object):
             default pose is skipped.
         """
 
-        pos = copy.deepcopy(self.GetDefaultInitPosition())
+        pos = copy.deepcopy(self.get_default_init_pos())
         pos[1] += self._robot_index
-        ori = self.GetDefaultInitOrientation()
+        ori = self.get_default_init_ori()
         self._pybullet_client.resetBasePositionAndOrientation(
             self.quadruped, pos, ori)
         self._pybullet_client.resetBaseVelocity(self.quadruped, [0, 0, 0],
                                                 [0, 0, 0])
-        self.ResetPose(add_constraint=False)
+        self.reset_pose(add_constraint=False)
 
         self._overheat_counter = np.zeros(self.num_motors)
         self._motor_enabled_list = [True] * self.num_motors
@@ -278,12 +261,12 @@ class Minitaur(object):
         self._filter_action = None
         self._last_action = np.zeros(self.num_motors)
 
-        self.ReceiveObservation()
+        self.receive_obs()
 
         if self._enable_action_filter:
-            self._ResetActionFilter()
+            self._reset_action_filter()
 
-        for s in self.GetAllSensors():
+        for s in self.get_all_sensors():
             s.on_reset(self)
 
         # Loop over all env randomizers.
@@ -293,40 +276,40 @@ class Minitaur(object):
 
         return
 
-    def SetAct(self, action):
+    def set_act(self, action):
         action += self._init_motor_angle
         self._last_action = action
         if self._enable_action_filter:
-            self._action = self._FilterAction(action)
+            self._action = self._filter(action)
         return
 
-    def RobotStep(self, i):
-        proc_action = self.ProcessAction(self._action, i)
-        self.ApplyAction(proc_action)
+    def robot_step(self, i):
+        proc_action = self.process_action(self._action, i)
+        self.apply_action(proc_action)
         self._state_action_counter += 1
         if i == self._action_repeat-1:
             self._filter_action = self._action
             self.step_counter += 1
 
-    def GetObs(self):
-        for s in self.GetAllSensors():
+    def get_obs(self):
+        for s in self.get_all_sensors():
             s.on_step()
         obs = self._get_observation()
         return obs
 
-    def Terminate(self):
+    def terminate(self):
         pass
 
-    def GetTrueObservation(self):
+    def get_true_obs(self):
         observation = []
-        observation.extend(self.GetTrueMotorAngles())
-        observation.extend(self.GetTrueMotorVelocities())
-        observation.extend(self.GetTrueMotorTorques())
-        observation.extend(self.GetTrueBaseOrientation())
-        observation.extend(self.GetTrueBaseRollPitchYawRate())
+        observation.extend(self.get_true_motor_angles())
+        observation.extend(self.get_true_motor_vel())
+        observation.extend(self.get_true_motor_tau())
+        observation.extend(self.get_true_base_orientation())
+        observation.extend(self.get_true_base_rpy_rate())
         return observation
 
-    def ReceiveObservation(self):
+    def receive_obs(self):
         """Receive the observation from sensors.
 
         This function is called once per step. The observations are only updated
@@ -339,17 +322,17 @@ class Minitaur(object):
         # Computes the relative orientation relative to the robot's
         # initial_orientation.
         _, _init_orientation_inv = self._pybullet_client.invertTransform(
-            position=[0, 0, 0], orientation=self.GetDefaultInitOrientation())
+            position=[0, 0, 0], orientation=self.get_default_init_ori())
         _, self._base_orientation = self._pybullet_client.multiplyTransforms(
             positionA=[0, 0, 0],
             orientationA=orientation,
             positionB=[0, 0, 0],
             orientationB=_init_orientation_inv)
-        self._observation_history.appendleft(self.GetTrueObservation())
-        self._control_observation = self._GetControlObservation()
+        self._observation_history.appendleft(self.get_true_obs())
+        self._control_observation = self._get_ctrl_obs()
         self.last_state_time = self._state_action_counter * self.time_step
 
-    def _GetDelayedObservation(self, latency):
+    def _get_delay_obs(self, latency):
         """Get observation that is delayed by the amount specified in latency.
 
         Args:
@@ -372,25 +355,25 @@ class Minitaur(object):
                 + blend_alpha * np.array(self._observation_history[n_steps_ago + 1]))
         return observation
 
-    def _GetPDObservation(self):
-        pd_delayed_observation = self._GetDelayedObservation(self._pd_latency)
+    def _get_pd_obs(self):
+        pd_delayed_observation = self._get_delay_obs(self._pd_latency)
         q = pd_delayed_observation[0:self.num_motors]
         qdot = pd_delayed_observation[self.num_motors:2 * self.num_motors]
         return (np.array(q), np.array(qdot))
 
-    def _GetControlObservation(self):
-        control_delayed_observation = self._GetDelayedObservation(
+    def _get_ctrl_obs(self):
+        control_delayed_observation = self._get_delay_obs(
             self._control_latency)
         return control_delayed_observation
 
-    def _AddSensorNoise(self, sensor_values, noise_stdev):
+    def _add_sensor_noise(self, sensor_values, noise_stdev):
         if noise_stdev <= 0:
             return sensor_values
         observation = sensor_values + np.random.normal(
             scale=noise_stdev, size=sensor_values.shape)
         return observation
 
-    def SetControlLatency(self, latency):
+    def set_ctrl_latency(self, latency):
         """Set the latency of the control loop.
 
         It measures the duration between sending an action from Nvidia TX2 and
@@ -401,7 +384,7 @@ class Minitaur(object):
         """
         self._control_latency = latency
 
-    def GetControlLatency(self):
+    def get_ctrl_latency(self):
         """Get the control latency.
 
         Returns:
@@ -410,14 +393,14 @@ class Minitaur(object):
         """
         return self._control_latency
 
-    def GetTimeSinceReset(self):
+    def get_time_since_reset(self):
         return self._state_action_counter * self.time_step
 
-    def GetFootLinkIDs(self):
+    def get_foot_link_ids(self):
         """Get list of IDs for all foot links."""
         return self._foot_link_ids
 
-    def SetAllSensors(self, sensors):
+    def set_all_sensors(self, sensors):
         """set all sensors to this robot and move the ownership to this robot.
 
         Args:
@@ -427,7 +410,7 @@ class Minitaur(object):
             s.set_robot(self)
         self._sensors = sensors
 
-    def GetAllSensors(self):
+    def get_all_sensors(self):
         """get all sensors associated with this robot.
 
         Returns:
@@ -435,7 +418,7 @@ class Minitaur(object):
         """
         return self._sensors
 
-    def GetSensor(self, name):
+    def get_sensor(self, name):
         """get the first sensor with the given name.
 
         This function return None if a sensor with the given name does not exist.
@@ -451,7 +434,7 @@ class Minitaur(object):
                 return s
         return None
 
-    def ProcessAction(self, action, substep_count):
+    def process_action(self, action, substep_count):
         """If enabled, interpolates between the current and previous actions.
 
         Args:
@@ -466,7 +449,7 @@ class Minitaur(object):
             if self._filter_action is not None:
                 prev_action = self._filter_action
             else:
-                prev_action = self.GetMotorAngles()
+                prev_action = self.get_motor_angles()
 
             lerp = float(substep_count + 1) / self._action_repeat
             proc_action = prev_action + lerp * (action - prev_action)
@@ -475,10 +458,10 @@ class Minitaur(object):
 
         return proc_action
 
-    def GetURDFFile(self):
+    def get_urdf_file(self):
         return self._urdf_file
 
-    def ResetPose(self, add_constraint):
+    def reset_pose(self, add_constraint):
         """Reset the pose of the minitaur.
 
         Args:
@@ -498,7 +481,7 @@ class Minitaur(object):
             self.pybullet_client.resetJointState(
                 self.quadruped, self._joint_name_to_id[name], angle, targetVelocity=0)
 
-    def GetBasePosition(self):
+    def get_base_pos(self):
         """Get the position of minitaur's base.
 
         Returns:
@@ -506,7 +489,7 @@ class Minitaur(object):
         """
         return self._base_position
 
-    def GetBaseVelocity(self):
+    def get_base_vel(self):
         """Get the linear velocity of minitaur's base.
 
         Returns:
@@ -515,18 +498,18 @@ class Minitaur(object):
         velocity, _ = self._pybullet_client.getBaseVelocity(self.quadruped)
         return velocity
 
-    def GetTrueBaseRollPitchYaw(self):
+    def get_true_base_rpy(self):
         """Get minitaur's base orientation in euler angle in the world frame.
 
         Returns:
           A tuple (roll, pitch, yaw) of the base in world frame.
         """
-        orientation = self.GetTrueBaseOrientation()
+        orientation = self.get_true_base_orientation()
         roll_pitch_yaw = self._pybullet_client.getEulerFromQuaternion(
             orientation)
         return np.asarray(roll_pitch_yaw)
 
-    def GetBaseRollPitchYaw(self):
+    def get_base_rpy(self):
         """Get minitaur's base orientation in euler angle in the world frame.
 
         This function mimicks the noisy sensor reading and adds latency.
@@ -538,7 +521,7 @@ class Minitaur(object):
             self._control_observation[3 * self.num_motors:3 * self.num_motors + 4])
         delayed_roll_pitch_yaw = self._pybullet_client.getEulerFromQuaternion(
             delayed_orientation)
-        roll_pitch_yaw = self._AddSensorNoise(
+        roll_pitch_yaw = self._add_sensor_noise(
             np.array(delayed_roll_pitch_yaw), self._observation_noise_stdev[3])
         return roll_pitch_yaw
 
@@ -549,14 +532,14 @@ class Minitaur(object):
           observations: sensory observation in the numpy array format
         """
         sensors_dict = {}
-        for s in self.GetAllSensors():
+        for s in self.get_all_sensors():
             sensors_dict[s.get_name()] = s.get_observation()
 
         observations = collections.OrderedDict(
             sorted(list(sensors_dict.items())))
         return observations
 
-    def GetTrueMotorAngles(self):
+    def get_true_motor_angles(self):
         """Gets the eight motor angles at the current moment, mapped to [-pi, pi].
 
         Returns:
@@ -568,7 +551,7 @@ class Minitaur(object):
             self._motor_direction)
         return motor_angles
 
-    def GetMotorAngles(self):
+    def get_motor_angles(self):
         """Gets the eight motor angles.
 
         This function mimicks the noisy sensor reading and adds latency. The motor
@@ -577,12 +560,12 @@ class Minitaur(object):
         Returns:
           Motor angles polluted by noise and latency, mapped to [-pi, pi].
         """
-        motor_angles = self._AddSensorNoise(
+        motor_angles = self._add_sensor_noise(
             np.array(self._control_observation[0:self.num_motors]),
             self._observation_noise_stdev[0])
-        return MapToMinusPiToPi(motor_angles)
+        return pose3d.MapToMinusPiToPi(motor_angles)
 
-    def GetTrueMotorVelocities(self):
+    def get_true_motor_vel(self):
         """Get the velocity of all eight motors.
 
         Returns:
@@ -593,19 +576,19 @@ class Minitaur(object):
         motor_velocities = np.multiply(motor_velocities, self._motor_direction)
         return motor_velocities
 
-    def GetMotorVelocities(self):
+    def get_motor_vel(self):
         """Get the velocity of all eight motors.
 
         This function mimicks the noisy sensor reading and adds latency.
         Returns:
           Velocities of all eight motors polluted by noise and latency.
         """
-        return self._AddSensorNoise(
+        return self._add_sensor_noise(
             np.array(self._control_observation[self.num_motors:2 *
                                                self.num_motors]),
             self._observation_noise_stdev[1])
 
-    def GetTrueMotorTorques(self):
+    def get_true_motor_tau(self):
         """Get the amount of torque the motors are exerting.
 
         Returns:
@@ -613,29 +596,29 @@ class Minitaur(object):
         """
         return self._observed_motor_torques
 
-    def GetMotorTorques(self):
+    def get_motor_tau(self):
         """Get the amount of torque the motors are exerting.
 
         This function mimicks the noisy sensor reading and adds latency.
         Returns:
           Motor torques of all eight motors polluted by noise and latency.
         """
-        return self._AddSensorNoise(
+        return self._add_sensor_noise(
             np.array(self._control_observation[2 * self.num_motors:3 *
                                                self.num_motors]),
             self._observation_noise_stdev[2])
 
-    def GetEnergyConsumptionPerControlStep(self):
+    def get_energy_consumption_per_step(self):
         """Get the amount of energy used in last one time step.
 
         Returns:
           Energy Consumption based on motor velocities and torques (Nm^2/s).
         """
         return np.abs(np.dot(
-            self.GetMotorTorques(),
-            self.GetMotorVelocities())) * self.time_step * self._action_repeat
+            self.get_motor_tau(),
+            self.get_motor_vel())) * self.time_step * self._action_repeat
 
-    def GetTrueBaseOrientation(self):
+    def get_true_base_orientation(self):
         """Get the orientation of minitaur's base, represented as quaternion.
 
         Returns:
@@ -643,7 +626,7 @@ class Minitaur(object):
         """
         return self._base_orientation
 
-    def GetBaseOrientation(self):
+    def get_base_orientation(self):
         """Get the orientation of minitaur's base, represented as quaternion.
 
         This function mimicks the noisy sensor reading and adds latency.
@@ -651,9 +634,9 @@ class Minitaur(object):
           The orientation of minitaur's base polluted by noise and latency.
         """
         return self._pybullet_client.getQuaternionFromEuler(
-            self.GetBaseRollPitchYaw())
+            self.get_base_rpy())
 
-    def GetTrueBaseRollPitchYawRate(self):
+    def get_true_base_rpy_rate(self):
         """Get the rate of orientation change of the minitaur's base in euler angle.
 
         Returns:
@@ -661,11 +644,11 @@ class Minitaur(object):
         """
         angular_velocity = self._pybullet_client.getBaseVelocity(self.quadruped)[
             1]
-        orientation = self.GetTrueBaseOrientation()
-        return self.TransformAngularVelocityToLocalFrame(angular_velocity,
+        orientation = self.get_true_base_orientation()
+        return self.trans_from_angular_vel_local_frame(angular_velocity,
                                                          orientation)
 
-    def TransformAngularVelocityToLocalFrame(self, angular_velocity, orientation):
+    def trans_from_angular_vel_local_frame(self, angular_velocity, orientation):
         """Transform the angular velocity from world frame to robot's frame.
 
         Args:
@@ -687,7 +670,7 @@ class Minitaur(object):
             self._pybullet_client.getQuaternionFromEuler([0, 0, 0]))
         return np.asarray(relative_velocity)
 
-    def GetBaseRollPitchYawRate(self):
+    def get_base_rpy_rate(self):
         """Get the rate of orientation change of the minitaur's base in euler angle.
 
         This function mimicks the noisy sensor reading and adds latency.
@@ -695,12 +678,12 @@ class Minitaur(object):
           rate of (roll, pitch, yaw) change of the minitaur's base polluted by noise
           and latency.
         """
-        return self._AddSensorNoise(
+        return self._add_sensor_noise(
             np.array(self._control_observation[3 * self.num_motors +
                                                4:3 * self.num_motors + 7]),
             self._observation_noise_stdev[4])
 
-    def GetActionDimension(self):
+    def get_action_dim(self):
         """Get the length of the action list.
 
         Returns:
@@ -708,7 +691,7 @@ class Minitaur(object):
         """
         return self.num_motors
 
-    def _ApplyOverheatProtection(self, actual_torque):
+    def _apply_overheat_protection(self, actual_torque):
         if self._motor_overheat_protection:
             for i in range(self.num_motors):
                 if abs(actual_torque[i]) > self._overheat_shutdown_tau:
@@ -719,7 +702,7 @@ class Minitaur(object):
                         self._overheat_shutdown_time / self.time_step):
                     self._motor_enabled_list[i] = False
 
-    def _ClipMotorCommands(self, motor_commands):
+    def _clip_motor_commands(self, motor_commands):
         """Clips motor commands.
 
         Args:
@@ -732,13 +715,13 @@ class Minitaur(object):
 
         # clamp the motor command by the joint limit, in case weired things happens
         max_angle_change = self._max_motor_angle_step
-        current_motor_angles = self.GetMotorAngles()
+        current_motor_angles = self.get_motor_angles()
         motor_commands = np.clip(motor_commands,
                                  current_motor_angles - max_angle_change,
                                  current_motor_angles + max_angle_change)
         return motor_commands
 
-    def ApplyAction(self, motor_commands, motor_control_mode=None):
+    def apply_action(self, motor_commands, motor_control_mode=None):
         """Apply the motor commands using the motor model.
 
         Args:
@@ -746,7 +729,7 @@ class Minitaur(object):
             or motor pwms (for Minitaur only).
           motor_control_mode: A MotorControlMode enum.
         """
-        motor_commands = self._ClipMotorCommands(motor_commands)
+        motor_commands = self._clip_motor_commands(motor_commands)
 
         self.last_action_time = self._state_action_counter * self.time_step
         control_mode = motor_control_mode
@@ -755,16 +738,16 @@ class Minitaur(object):
 
         motor_commands = np.asarray(motor_commands)
 
-        q, qdot = self._GetPDObservation()
-        qdot_true = self.GetTrueMotorVelocities()
+        q, qdot = self._get_pd_obs()
+        qdot_true = self.get_true_motor_vel()
         actual_torque, observed_torque = self._motor_model.convert_to_torque(
             motor_commands, q, qdot, qdot_true, control_mode)
 
         # May turn off the motor
-        self._ApplyOverheatProtection(actual_torque)
+        self._apply_overheat_protection(actual_torque)
 
         # The torque is already in the observation space because we use
-        # GetMotorAngles and GetMotorVelocities.
+        # get_motor_angles and get_motor_vel.
         self._observed_motor_torques = observed_torque
 
         # Transform into the motor space when applying the torque.
@@ -782,9 +765,9 @@ class Minitaur(object):
             else:
                 motor_ids.append(motor_id)
                 motor_torques.append(0)
-        self._SetMotorTorqueByIds(motor_ids, motor_torques)
+        self._set_motor_tau_by_ids(motor_ids, motor_torques)
 
-    def _RecordMassInfoFromURDF(self):
+    def _record_mass_from_urdf(self):
         """Records the mass information from the URDF file."""
         self._base_mass_urdf = []
         for chassis_id in self._chassis_link_ids:
@@ -798,7 +781,7 @@ class Minitaur(object):
             self._leg_masses_urdf.append(
                 self._pybullet_client.getDynamicsInfo(self.quadruped, motor_id)[0])
 
-    def _RecordInertiaInfoFromURDF(self):
+    def _record_inertia_from_urdf(self):
         """Record the inertia of each body from URDF file."""
         self._link_urdf = []
         num_bodies = self._pybullet_client.getNumJoints(self.quadruped)
@@ -817,7 +800,7 @@ class Minitaur(object):
         self._leg_inertia_urdf.extend(
             [self._link_urdf[motor_id + 1] for motor_id in self._motor_link_ids])
 
-    def _BuildJointNameToIdDict(self):
+    def _build_joint_name_to_dict(self):
         num_joints = self._pybullet_client.getNumJoints(self.quadruped)
         self._joint_name_to_id = {}
         for i in range(num_joints):
@@ -825,7 +808,7 @@ class Minitaur(object):
             self._joint_name_to_id[joint_info[1].decode(
                 "UTF-8")] = joint_info[0]
 
-    def _BuildUrdfIds(self):
+    def _build_urdf_ids(self):
         """Build the link Ids from its name in the URDF file.
 
         Raises:
@@ -866,20 +849,20 @@ class Minitaur(object):
 
         return
 
-    def _RemoveDefaultJointDamping(self):
+    def _remove_default_joint_damping(self):
         num_joints = self._pybullet_client.getNumJoints(self.quadruped)
         for i in range(num_joints):
             joint_info = self._pybullet_client.getJointInfo(self.quadruped, i)
             self._pybullet_client.changeDynamics(
                 joint_info[0], -1, linearDamping=0, angularDamping=0)
 
-    def _BuildMotorIdList(self):
+    def _build_motor_id_list(self):
         self._motor_id_list = [
             self._joint_name_to_id[motor_name]
-            for motor_name in self._GetMotorNames()
+            for motor_name in self._get_motor_names()
         ]
 
-    def _CreateRackConstraint(self, init_position, init_orientation):
+    def _create_rack_constraint(self, init_position, init_orientation):
         """Create a constraint that keeps the chassis at a fixed frame.
 
         This frame is defined by init_position and init_orientation.
@@ -904,11 +887,11 @@ class Minitaur(object):
             childFrameOrientation=init_orientation)
         return fixed_constraint
 
-    def _LoadRobotURDF(self, robot_index=0):
-        laikago_urdf_path = self.GetURDFFile()
-        pos = copy.deepcopy(self.GetDefaultInitPosition())
+    def _load_urdf(self, robot_index=0):
+        laikago_urdf_path = self.get_urdf_file()
+        pos = copy.deepcopy(self.get_default_init_pos())
         pos[1] += robot_index
-        ori = self.GetDefaultInitOrientation()
+        ori = self.get_default_init_ori()
         if self._self_collision_enabled:
             self.quadruped = self._pybullet_client.loadURDF(
                 laikago_urdf_path, pos, ori,
@@ -917,37 +900,37 @@ class Minitaur(object):
             self.quadruped = self._pybullet_client.loadURDF(
                 laikago_urdf_path, pos, ori)
 
-    def _SetMotorTorqueById(self, motor_id, torque):
+    def _set_motor_tau_by_id(self, motor_id, torque):
         self._pybullet_client.setJointMotorControl2(
             bodyIndex=self.quadruped,
             jointIndex=motor_id,
             controlMode=self._pybullet_client.TORQUE_CONTROL,
             force=torque)
 
-    def _SetMotorTorqueByIds(self, motor_ids, torques):
+    def _set_motor_tau_by_ids(self, motor_ids, torques):
         self._pybullet_client.setJointMotorControlArray(
             bodyIndex=self.quadruped,
             jointIndices=motor_ids,
             controlMode=self._pybullet_client.TORQUE_CONTROL,
             forces=torques)
 
-    def GetBaseMassesFromURDF(self):
+    def get_base_mass_from_urdf(self):
         """Get the mass of the base from the URDF file."""
         return self._base_mass_urdf
 
-    def GetBaseInertiasFromURDF(self):
+    def get_base_inertia_from_urdf(self):
         """Get the inertia of the base from the URDF file."""
         return self._base_inertia_urdf
 
-    def GetLegMassesFromURDF(self):
+    def get_leg_mass_from_urdf(self):
         """Get the mass of the legs from the URDF file."""
         return self._leg_masses_urdf
 
-    def GetLegInertiasFromURDF(self):
+    def get_leg_inertia_from_urdf(self):
         """Get the inertia of the legs from the URDF file."""
         return self._leg_inertia_urdf
 
-    def SetBaseMasses(self, base_mass):
+    def set_base_mass(self, base_mass):
         """Set the mass of minitaur's base.
 
         Args:
@@ -966,7 +949,7 @@ class Minitaur(object):
             self._pybullet_client.changeDynamics(
                 self.quadruped, chassis_id, mass=chassis_mass)
 
-    def SetLegMasses(self, leg_masses):
+    def set_leg_mass(self, leg_masses):
         """Set the mass of the legs.
 
         A leg includes leg_link and motor. 4 legs contain 16 links (4 links each)
@@ -981,7 +964,7 @@ class Minitaur(object):
             of links + motors.
         """
         if len(leg_masses) != len(self._leg_link_ids) + len(self._motor_link_ids):
-            raise ValueError("The number of values passed to SetLegMasses are "
+            raise ValueError("The number of values passed to set_leg_mass are "
                              "different than number of leg links and motors.")
         for leg_id, leg_mass in zip(self._leg_link_ids, leg_masses):
             self._pybullet_client.changeDynamics(
@@ -991,7 +974,7 @@ class Minitaur(object):
             self._pybullet_client.changeDynamics(
                 self.quadruped, link_id, mass=motor_mass)
 
-    def SetBaseInertias(self, base_inertias):
+    def set_base_inertia(self, base_inertias):
         """Set the inertias of minitaur's base.
 
         Args:
@@ -1018,7 +1001,7 @@ class Minitaur(object):
             self._pybullet_client.changeDynamics(
                 self.quadruped, chassis_id, localInertiaDiagonal=chassis_inertia)
 
-    def SetLegInertias(self, leg_inertias):
+    def set_leg_inertia(self, leg_inertias):
         """Set the inertias of the legs.
 
         A leg includes leg_link and motor. 4 legs contain 16 links (4 links each)
@@ -1034,7 +1017,7 @@ class Minitaur(object):
         """
 
         if len(leg_inertias) != len(self._leg_link_ids) + len(self._motor_link_ids):
-            raise ValueError("The number of values passed to SetLegMasses are "
+            raise ValueError("The number of values passed to set_leg_mass are "
                              "different than number of leg links and motors.")
         for leg_id, leg_inertia in zip(self._leg_link_ids, leg_inertias):
             for inertia_value in leg_inertias:
@@ -1053,7 +1036,7 @@ class Minitaur(object):
             self._pybullet_client.changeDynamics(
                 self.quadruped, link_id, localInertiaDiagonal=motor_inertia)
 
-    def SetFootFriction(self, foot_friction):
+    def set_foot_friction(self, foot_friction):
         """Set the lateral friction of the feet.
 
         Args:
@@ -1064,7 +1047,7 @@ class Minitaur(object):
             self._pybullet_client.changeDynamics(
                 self.quadruped, link_id, lateralFriction=foot_friction)
 
-    def SetFootRestitution(self, foot_restitution):
+    def set_foot_restitution(self, foot_restitution):
         """Set the coefficient of restitution at the feet.
 
         Args:
@@ -1075,7 +1058,7 @@ class Minitaur(object):
             self._pybullet_client.changeDynamics(
                 self.quadruped, link_id, restitution=foot_restitution)
 
-    def SetJointFriction(self, joint_frictions):
+    def set_joint_friction(self, joint_frictions):
         for knee_joint_id, friction in zip(self._foot_link_ids, joint_frictions):
             self._pybullet_client.setJointMotorControl2(
                 bodyIndex=self.quadruped,
@@ -1084,16 +1067,16 @@ class Minitaur(object):
                 targetVelocity=0,
                 force=friction)
 
-    def GetNumKneeJoints(self):
+    def get_num_knee_joints(self):
         return len(self._foot_link_ids)
 
-    def SetBatteryVoltage(self, voltage):
+    def set_battery_voltage(self, voltage):
         self._motor_model.set_voltage(voltage)
 
-    def SetMotorViscousDamping(self, viscous_damping):
+    def set_motor_viscous_damping(self, viscous_damping):
         self._motor_model.set_viscous_damping(viscous_damping)
 
-    def SetMotorGains(self, kp, kd):
+    def set_motor_gains(self, kp, kd):
         """Set the gains of all motors.
 
         These gains are PD gains for motor positional control. kp is the
@@ -1115,7 +1098,7 @@ class Minitaur(object):
 
         self._motor_model.set_motor_gains(kp, kd)
 
-    def GetMotorGains(self):
+    def get_motor_gains(self):
         """Get the gains of the motor.
 
         Returns:
@@ -1124,7 +1107,7 @@ class Minitaur(object):
         """
         return self._motor_kps, self._motor_kds
 
-    def GetMotorPositionGains(self):
+    def get_motor_pos_gains(self):
         """Get the position gains of the motor.
 
         Returns:
@@ -1132,7 +1115,7 @@ class Minitaur(object):
         """
         return self._motor_kps
 
-    def GetMotorVelocityGains(self):
+    def get_motor_vel_gains(self):
         """Get the velocity gains of the motor.
 
         Returns:
@@ -1140,7 +1123,7 @@ class Minitaur(object):
         """
         return self._motor_kds
 
-    def SetMotorStrengthRatio(self, ratio):
+    def set_motor_strength_ratio(self, ratio):
         """Set the strength of all motors relative to the default value.
 
         Args:
@@ -1148,7 +1131,7 @@ class Minitaur(object):
         """
         self._motor_model.set_strength_ratios([ratio] * self.num_motors)
 
-    def SetMotorStrengthRatios(self, ratios):
+    def set_motor_strength_ratios(self, ratios):
         """Set the strength of each motor relative to the default value.
 
         Args:
@@ -1156,7 +1139,7 @@ class Minitaur(object):
         """
         self._motor_model.set_strength_ratios(ratios)
 
-    def SetTimeSteps(self, action_repeat, simulation_step=0.001):
+    def set_time_steps(self, action_repeat, simulation_step=0.001):
         """Set the time steps of the control and simulation.
 
         Args:
@@ -1167,42 +1150,42 @@ class Minitaur(object):
         self.time_step = simulation_step
         self._action_repeat = action_repeat
 
-    def _GetMotorNames(self):
+    def _get_motor_names(self):
         return self.name_motor
 
-    def _BuildActionFilter(self):
+    def _build_action_filter(self):
         sampling_rate = 1 / (self.time_step * self._action_repeat)
-        num_joints = self.GetActionDimension()
+        num_joints = self.get_action_dim()
         a_filter = action_filter.ActionFilterButter(
             sampling_rate=sampling_rate, num_joints=num_joints)
         return a_filter
 
-    def _ResetActionFilter(self):
+    def _reset_action_filter(self):
         self._action_filter.reset()
         return
 
-    def _FilterAction(self, action):
+    def _filter(self, action):
         # initialize the filter history, since resetting the filter will fill
         # the history with zeros and this can cause sudden movements at the start
         # of each episode
         if self._state_action_counter == 0:
-            default_action = self.GetMotorAngles()
+            default_action = self.get_motor_angles()
             self._action_filter.init_history(default_action)
 
         filtered_action = self._action_filter.filter(action)
         return filtered_action
 
-    def GetDefaultInitPosition(self):
+    def get_default_init_pos(self):
         return self._init_pos
 
-    def GetDefaultInitOrientation(self):
+    def get_default_init_ori(self):
         """Returns the init position of the robot.
 
         It can be either 1) INIT_ORIENTATION or 2) the previous rotation in yaw.
         """
         return self._init_quat
 
-    def GetDefaultInitJointPose(self):
+    def get_default_init_joint_pos(self):
         """Get default initial joint pose."""
         joint_pose = (self._init_motor_angle +
                       self._motor_offset) * self._motor_direction

@@ -206,17 +206,17 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    base_mass = minitaur.GetBaseMassesFromURDF()
+    base_mass = minitaur.get_base_mass_from_urdf()
     random_base_ratio = randomized_mass_ratios[0]
     randomized_base_mass = random_base_ratio * np.array(base_mass)
-    minitaur.SetBaseMasses(randomized_base_mass)
+    minitaur.set_base_mass(randomized_base_mass)
     if self._verbose:
       tf.logging.info("base mass is: {}".format(randomized_base_mass))
 
-    leg_masses = minitaur.GetLegMassesFromURDF()
+    leg_masses = minitaur.get_leg_mass_from_urdf()
     random_leg_ratio = randomized_mass_ratios[1]
     randomized_leg_masses = random_leg_ratio * np.array(leg_masses)
-    minitaur.SetLegMasses(randomized_leg_masses)
+    minitaur.set_leg_mass(randomized_leg_masses)
     if self._verbose:
       tf.logging.info("leg mass is: {}".format(randomized_leg_masses))
 
@@ -225,8 +225,8 @@ class ControllableEnvRandomizerFromConfig(
                                    lower_bound,
                                    upper_bound,
                                    parameters=None):
-    base_mass = minitaur.GetBaseMassesFromURDF()
-    leg_masses = minitaur.GetLegMassesFromURDF()
+    base_mass = minitaur.get_base_mass_from_urdf()
+    leg_masses = minitaur.get_leg_mass_from_urdf()
     param_dim = len(base_mass) + len(leg_masses)
     if parameters is None:
       sample = self._np_random.uniform([self._param_bounds[0]] * param_dim,
@@ -240,13 +240,13 @@ class ControllableEnvRandomizerFromConfig(
 
     random_base_ratio = randomized_mass_ratios[0:len(base_mass)]
     randomized_base_mass = random_base_ratio * np.array(base_mass)
-    minitaur.SetBaseMasses(randomized_base_mass)
+    minitaur.set_base_mass(randomized_base_mass)
     if self._verbose:
       tf.logging.info("base mass is: {}".format(randomized_base_mass))
 
     random_leg_ratio = randomized_mass_ratios[len(base_mass):]
     randomized_leg_masses = random_leg_ratio * np.array(leg_masses)
-    minitaur.SetLegMasses(randomized_leg_masses)
+    minitaur.set_leg_mass(randomized_leg_masses)
     if self._verbose:
       tf.logging.info("randomization dim: {}".format(param_dim))
       tf.logging.info("leg mass is: {}".format(randomized_leg_masses))
@@ -266,10 +266,10 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    base_mass = minitaur.GetBaseMassesFromURDF()
+    base_mass = minitaur.get_base_mass_from_urdf()
     random_base_ratio = randomized_mass_ratios
     randomized_base_mass = random_base_ratio * np.array(base_mass)
-    minitaur.SetBaseMasses(randomized_base_mass)
+    minitaur.set_base_mass(randomized_base_mass)
     if self._verbose:
       tf.logging.info("base mass is: {}".format(randomized_base_mass))
 
@@ -278,8 +278,8 @@ class ControllableEnvRandomizerFromConfig(
                                     lower_bound,
                                     upper_bound,
                                     parameters=None):
-    base_inertia = minitaur.GetBaseInertiasFromURDF()
-    leg_inertia = minitaur.GetLegInertiasFromURDF()
+    base_inertia = minitaur.get_base_inertia_from_urdf()
+    leg_inertia = minitaur.get_leg_inertia_from_urdf()
     param_dim = (len(base_inertia) + len(leg_inertia)) * 3
 
     if parameters is None:
@@ -295,14 +295,14 @@ class ControllableEnvRandomizerFromConfig(
         randomized_inertia_ratios[0:len(base_inertia) * 3],
         (len(base_inertia), 3))
     randomized_base_inertia = random_base_ratio * np.array(base_inertia)
-    minitaur.SetBaseInertias(randomized_base_inertia)
+    minitaur.set_base_inertia(randomized_base_inertia)
     if self._verbose:
       tf.logging.info("base inertia is: {}".format(randomized_base_inertia))
     random_leg_ratio = np.reshape(
         randomized_inertia_ratios[len(base_inertia) * 3:],
         (len(leg_inertia), 3))
     randomized_leg_inertia = random_leg_ratio * np.array(leg_inertia)
-    minitaur.SetLegInertias(randomized_leg_inertia)
+    minitaur.set_leg_inertia(randomized_leg_inertia)
     if self._verbose:
       tf.logging.info("leg inertia is: {}".format(randomized_leg_inertia))
 
@@ -321,16 +321,16 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    base_inertia = minitaur.GetBaseInertiasFromURDF()
+    base_inertia = minitaur.get_base_inertia_from_urdf()
     random_base_ratio = randomized_inertia_ratios[0]
     randomized_base_inertia = random_base_ratio * np.array(base_inertia)
-    minitaur.SetBaseInertias(randomized_base_inertia)
+    minitaur.set_base_inertia(randomized_base_inertia)
     if self._verbose:
       tf.logging.info("base inertia is: {}".format(randomized_base_inertia))
-    leg_inertia = minitaur.GetLegInertiasFromURDF()
+    leg_inertia = minitaur.get_leg_inertia_from_urdf()
     random_leg_ratio = randomized_inertia_ratios[1]
     randomized_leg_inertia = random_leg_ratio * np.array(leg_inertia)
-    minitaur.SetLegInertias(randomized_leg_inertia)
+    minitaur.set_leg_inertia(randomized_leg_inertia)
     if self._verbose:
       tf.logging.info("leg inertia is: {}".format(randomized_leg_inertia))
 
@@ -349,7 +349,7 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    minitaur.SetControlLatency(randomized_latency)
+    minitaur.set_ctrl_latency(randomized_latency)
     if self._verbose:
       tf.logging.info("control latency is: {}".format(randomized_latency))
 
@@ -358,7 +358,7 @@ class ControllableEnvRandomizerFromConfig(
                                 lower_bound,
                                 upper_bound,
                                 parameters=None):
-    num_knee_joints = minitaur.GetNumKneeJoints()
+    num_knee_joints = minitaur.get_num_knee_joints()
 
     if parameters is None:
       sample = self._np_random.uniform(
@@ -371,7 +371,7 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    minitaur.SetJointFriction(randomized_joint_frictions)
+    minitaur.set_joint_friction(randomized_joint_frictions)
     if self._verbose:
       tf.logging.info(
           "joint friction is: {}".format(randomized_joint_frictions))
@@ -391,7 +391,7 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    minitaur.SetMotorViscousDamping(randomized_motor_damping)
+    minitaur.set_motor_viscous_damping(randomized_motor_damping)
     if self._verbose:
       tf.logging.info("motor friction is: {}".format(randomized_motor_damping))
 
@@ -410,7 +410,7 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    minitaur.SetFootRestitution(randomized_restitution)
+    minitaur.set_foot_restitution(randomized_restitution)
     if self._verbose:
       tf.logging.info("foot restitution is: {}".format(randomized_restitution))
 
@@ -429,7 +429,7 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    minitaur.SetFootFriction(randomized_foot_friction)
+    minitaur.set_foot_friction(randomized_foot_friction)
     if self._verbose:
       tf.logging.info("foot friction is: {}".format(randomized_foot_friction))
 
@@ -448,7 +448,7 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    minitaur.SetBatteryVoltage(randomized_battery_voltage)
+    minitaur.set_battery_voltage(randomized_battery_voltage)
     if self._verbose:
       tf.logging.info(
           "battery voltage is: {}".format(randomized_battery_voltage))
@@ -468,7 +468,7 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    minitaur.SetMotorStrengthRatios([randomized_motor_strength_ratio] *
+    minitaur.set_motor_strength_ratios([randomized_motor_strength_ratio] *
                                     minitaur.num_motors)
     if self._verbose:
       tf.logging.info("global motor strength is: {}".format(
@@ -490,7 +490,7 @@ class ControllableEnvRandomizerFromConfig(
         self._param_bounds[1] -
         self._param_bounds[0]) * (upper_bound - lower_bound) + lower_bound
 
-    minitaur.SetMotorStrengthRatios(randomized_motor_strength_ratios)
+    minitaur.set_motor_strength_ratios(randomized_motor_strength_ratios)
     if self._verbose:
       tf.logging.info(
           "motor strength is: {}".format(randomized_motor_strength_ratios))
@@ -523,7 +523,7 @@ class ControllableEnvRandomizerFromConfig(
     motor_strength_ratios = np.ones(minitaur.num_motors)
     motor_strength_ratios[leg_to_weaken * motor_per_leg:(leg_to_weaken + 1) *
                           motor_per_leg] = leg_weaken_ratio
-    minitaur.SetMotorStrengthRatios(motor_strength_ratios)
+    minitaur.set_motor_strength_ratios(motor_strength_ratios)
     if self._verbose:
       tf.logging.info("weakening leg {} with ratio: {}".format(
           leg_to_weaken, leg_weaken_ratio))
@@ -551,7 +551,7 @@ class ControllableEnvRandomizerFromConfig(
     motor_strength_ratios = np.ones(minitaur.num_motors)
     motor_strength_ratios[leg_to_weaken * motor_per_leg:(leg_to_weaken + 1) *
                           motor_per_leg] = leg_weaken_ratio
-    minitaur.SetMotorStrengthRatios(motor_strength_ratios)
+    minitaur.set_motor_strength_ratios(motor_strength_ratios)
     if self._verbose:
       tf.logging.info("weakening leg {} with ratio: {}".format(
           leg_to_weaken, leg_weaken_ratio))

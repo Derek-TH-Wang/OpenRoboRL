@@ -58,13 +58,13 @@ class MinitaurEnvRandomizer(env_randomizer_base.EnvRandomizerBase):
     Args:
       minitaur: the Minitaur instance in minitaur_gym_env environment.
     """
-    base_mass = minitaur.GetBaseMassesFromURDF()
+    base_mass = minitaur.get_base_mass_from_urdf()
     randomized_base_mass = random.uniform(
         np.array(base_mass) * (1.0 + self._minitaur_base_mass_err_range[0]),
         np.array(base_mass) * (1.0 + self._minitaur_base_mass_err_range[1]))
-    minitaur.SetBaseMasses(randomized_base_mass)
+    minitaur.set_base_mass(randomized_base_mass)
 
-    leg_masses = minitaur.GetLegMassesFromURDF()
+    leg_masses = minitaur.get_leg_mass_from_urdf()
     leg_masses_lower_bound = np.array(leg_masses) * (
         1.0 + self._minitaur_leg_mass_err_range[0])
     leg_masses_upper_bound = np.array(leg_masses) * (
@@ -73,16 +73,16 @@ class MinitaurEnvRandomizer(env_randomizer_base.EnvRandomizerBase):
         np.random.uniform(leg_masses_lower_bound[i], leg_masses_upper_bound[i])
         for i in range(len(leg_masses))
     ]
-    minitaur.SetLegMasses(randomized_leg_masses)
+    minitaur.set_leg_mass(randomized_leg_masses)
 
     randomized_battery_voltage = random.uniform(BATTERY_VOLTAGE_RANGE[0],
                                                 BATTERY_VOLTAGE_RANGE[1])
-    minitaur.SetBatteryVoltage(randomized_battery_voltage)
+    minitaur.set_battery_voltage(randomized_battery_voltage)
 
     randomized_motor_damping = random.uniform(MOTOR_VISCOUS_DAMPING_RANGE[0],
                                               MOTOR_VISCOUS_DAMPING_RANGE[1])
-    minitaur.SetMotorViscousDamping(randomized_motor_damping)
+    minitaur.set_motor_viscous_damping(randomized_motor_damping)
 
     randomized_foot_friction = random.uniform(MINITAUR_LEG_FRICTION[0],
                                               MINITAUR_LEG_FRICTION[1])
-    minitaur.SetFootFriction(randomized_foot_friction)
+    minitaur.set_foot_friction(randomized_foot_friction)

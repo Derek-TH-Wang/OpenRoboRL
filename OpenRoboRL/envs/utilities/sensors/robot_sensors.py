@@ -73,9 +73,9 @@ class MotorAngleSensor(sensor.BoxSpaceSensor):
 
   def _get_observation(self) -> _ARRAY:
     if self._noisy_reading:
-      motor_angles = self._robot.GetMotorAngles()
+      motor_angles = self._robot.get_motor_angles()
     else:
-      motor_angles = self._robot.GetTrueMotorAngles()
+      motor_angles = self._robot.get_true_motor_angles()
 
     if self._observe_sine_cosine:
       return np.hstack((np.cos(motor_angles), np.sin(motor_angles)))
@@ -152,11 +152,11 @@ class IMUSensor(sensor.BoxSpaceSensor):
 
   def _get_observation(self) -> _ARRAY:
     if self._noisy_reading:
-      rpy = self._robot.GetBaseRollPitchYaw()
-      drpy = self._robot.GetBaseRollPitchYawRate()
+      rpy = self._robot.get_base_rpy()
+      drpy = self._robot.get_base_rpy_rate()
     else:
-      rpy = self._robot.GetTrueBaseRollPitchYaw()
-      drpy = self._robot.GetTrueBaseRollPitchYawRate()
+      rpy = self._robot.get_true_base_rpy()
+      drpy = self._robot.get_true_base_rpy_rate()
 
     assert len(rpy) >= 3, rpy
     assert len(drpy) >= 3, drpy
