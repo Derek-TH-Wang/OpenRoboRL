@@ -194,12 +194,12 @@ def traj_segment_generator(policy, env, horizon, reward_giver=None, gail=False, 
                         cur_ep_ret = maybe_ep_info['r']
                     cur_ep_true_ret = maybe_ep_info['r']
 
-                ep_rets.append(cur_ep_ret)
-                ep_true_rets.append(cur_ep_true_ret)
-                ep_lens.append(current_ep_len)
-                cur_ep_ret = 0
-                cur_ep_true_ret = 0
-                current_ep_len = 0
+            ep_rets.append(cur_ep_ret / num_robot)
+            ep_true_rets.append(cur_ep_true_ret / num_robot)
+            ep_lens.append(current_ep_len)
+            cur_ep_ret = 0
+            cur_ep_true_ret = 0
+            current_ep_len = 0
 
             if not isinstance(env, VecEnv):
                 observation = env.reset()

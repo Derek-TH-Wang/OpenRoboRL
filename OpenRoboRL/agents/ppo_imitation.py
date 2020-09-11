@@ -289,6 +289,7 @@ class PPOImitation(pposgd_simple.PPO1):
                 reward_buffer = deque(maxlen=100)
 
                 while True:
+                    t_episode = time.time()
                     if timesteps_so_far >= total_timesteps:
                         break
 
@@ -315,10 +316,10 @@ class PPOImitation(pposgd_simple.PPO1):
                     atarg, tdlamret = seg["adv"], seg["tdlamret"]
 
                     # true_rew is the reward without discount
-                    if writer is not None:
-                        total_episode_reward_logger(self.episode_reward,
-                                                    seg["true_rewards"].reshape((self.n_envs, -1)),
-                                                    writer, self.num_timesteps, int(self.timesteps_per_actorbatch/100)) # step write reward sum
+                    # if writer is not None:
+                    #     total_episode_reward_logger(self.episode_reward,
+                    #                                 seg["true_rewards"].reshape((self.n_envs, -1)),
+                    #                                 writer, self.num_timesteps, int(self.timesteps_per_actorbatch/100)) # step write reward sum
 
                     # predicted value function before udpate
                     vpredbefore = seg["vpred"]
@@ -406,6 +407,10 @@ class PPOImitation(pposgd_simple.PPO1):
                     # list of tuples
                     listoflrpairs = MPI.COMM_WORLD.allgather(lrlocal)
                     lens, rews = map(flatten_lists, zip(*listoflrpairs))
+                    if writer is not None:
+                        for i in range(len(rews)):
+                            summary = tf.Summary(value=[tf.Summary.Value(tag="episode_reward", simple_value=rews[i])])
+                            writer.add_summary(summary, self.num_timesteps+i)
                     len_buffer.extend(lens)
                     reward_buffer.extend(rews)
                     if len(len_buffer) > 0:
@@ -424,6 +429,7 @@ class PPOImitation(pposgd_simple.PPO1):
                     logger.record_tabular("EpisodesSoFar", episodes_so_far)
                     logger.record_tabular("TimestepsSoFar", self.num_timesteps)
                     logger.record_tabular("TimeElapsed", time.time() - t_start)
+                    logger.record_tabular("TimePerEpisode", time.time() - t_episode)
                     if self.verbose >= 1 and is_root:
                         logger.dump_tabular()
         callback.on_training_end()
