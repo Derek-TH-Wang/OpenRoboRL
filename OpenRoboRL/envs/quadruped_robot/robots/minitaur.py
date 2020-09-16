@@ -244,7 +244,8 @@ class Minitaur(object):
         """
 
         pos = copy.deepcopy(self.get_default_init_pos())
-        pos[1] += self._robot_index
+        pos[0] -= int(self._robot_index/4)*2
+        pos[1] += (self._robot_index%4)*2
         ori = self.get_default_init_ori()
         self._pybullet_client.resetBasePositionAndOrientation(
             self.quadruped, pos, ori)
@@ -890,7 +891,8 @@ class Minitaur(object):
     def _load_urdf(self, robot_index=0):
         laikago_urdf_path = self.get_urdf_file()
         pos = copy.deepcopy(self.get_default_init_pos())
-        pos[1] += robot_index
+        pos[0] -= int(robot_index/4)*2
+        pos[1] += (robot_index%4)*2
         ori = self.get_default_init_ori()
         if self._self_collision_enabled:
             self.quadruped = self._pybullet_client.loadURDF(

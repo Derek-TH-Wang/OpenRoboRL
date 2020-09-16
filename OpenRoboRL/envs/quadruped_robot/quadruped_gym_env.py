@@ -231,11 +231,11 @@ class LocomotionGymEnv(gym.Env):
             reward[i] = self._reward(self._task[i])
             self._task[i].update()
             done[i] = self._termination(self._task[i], self._robot[i])
-
-            self._env_step_counter += 1
-
             if done[i]:
                 self._robot[i].terminate()
+
+        self._env_step_counter += 1
+
         return obs, reward, done
 
     def _termination(self, task, robot):
