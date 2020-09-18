@@ -80,7 +80,7 @@ class ImitationWrapperEnv(object):
             info[i] = {"terminated": terminated}
 
         if np.sum(done) > 0:  # at least one True
-            self._total_step_count += 1
+            self._total_step_count += num_robot
 
         return observation, reward, done, info
 
