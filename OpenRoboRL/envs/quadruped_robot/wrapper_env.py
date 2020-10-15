@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A wrapper for motion imitation environment."""
+"""A wrapper for gym environment."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -23,7 +23,7 @@ import gym
 import numpy as np
 
 
-class ImitationWrapperEnv(object):
+class WrapperEnv(object):
     """An env using for training policy with motion imitation."""
 
     def __init__(self,

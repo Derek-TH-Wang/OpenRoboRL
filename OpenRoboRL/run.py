@@ -25,9 +25,10 @@ import time
 import agents.imitation_policies as imitation_policies
 import agents.ppo_imitation as ppo_imitation
 from envs.quadruped_robot import quadruped_gym_env
-from envs.quadruped_robot import imitation_wrapper_env
+from envs.quadruped_robot import wrapper_env
 from envs.quadruped_robot.robots import minitaur
 from envs.quadruped_robot.task import imitation_task
+from envs.quadruped_robot.task import hybrid_gait_task
 
 from stable_baselines.common.callbacks import CheckpointCallback
 
@@ -45,32 +46,54 @@ def set_rand_seed(seed=None):
     return
 
 
-def build_env(name_robot, motion_files, num_robot, num_parallel_envs, mode,
-              enable_randomizer):
-    assert len(motion_files) > 0
+def build_env(name_task, num_robot, num_parallel_envs, mode,
+              enable_randomizer, motion_files=None):
 
-    curriculum_episode_length_start = 20
-    curriculum_episode_length_end = 600
+    if name_task == "imitation_learning_laikago" or name_task == "imitation_learning_minicheetah":
 
-    robot = [minitaur.Minitaur(name_robot=name_robot, robot_index=i, enable_randomizer = enable_randomizer)
-             for i in range(num_robot)]
-    task = [imitation_task.ImitationTask(ref_motion_filenames=motion_files,
-                                         enable_cycle_sync=True,
-                                         tar_frame_steps=[1, 2, 10, 30],
-                                         ref_state_init_prob=0.9,
-                                         warmup_time=0.25)
-            for _ in range(num_robot)]
+        curriculum_episode_length_start = 20
+        curriculum_episode_length_end = 600
 
-    env = quadruped_gym_env.LocomotionGymEnv(robot, task)
+        name_robot = name_task.replace("imitation_learning_", "")
+        robot = [minitaur.Minitaur(name_robot=name_robot, robot_index=i, enable_randomizer=enable_randomizer)
+                 for i in range(num_robot)]
+        task = [imitation_task.ImitationTask(ref_motion_filenames=motion_files,
+                                             enable_cycle_sync=True,
+                                             tar_frame_steps=[1, 2, 10, 30],
+                                             ref_state_init_prob=0.9,
+                                             warmup_time=0.25)
+                for _ in range(num_robot)]
 
-    if mode == "test":
-        curriculum_episode_length_start = curriculum_episode_length_end
+        env = quadruped_gym_env.LocomotionGymEnv(robot, task)
 
-    env = imitation_wrapper_env.ImitationWrapperEnv(env,
-                                                    episode_length_start=curriculum_episode_length_start,
-                                                    episode_length_end=curriculum_episode_length_end,
-                                                    curriculum_steps=30000000,
-                                                    num_parallel_envs=num_parallel_envs)
+        if mode == "test":
+            curriculum_episode_length_start = curriculum_episode_length_end
+
+        env = wrapper_env.WrapperEnv(env,
+                                     episode_length_start=curriculum_episode_length_start,
+                                     episode_length_end=curriculum_episode_length_end,
+                                     curriculum_steps=30000000,
+                                     num_parallel_envs=num_parallel_envs)
+
+    elif name_task == "hybrid_gait_minicheetah":
+
+        curriculum_episode_length = 600
+
+        name_robot = name_task.replace("imitation_learning_", "")
+        robot = [minitaur.Minitaur(name_robot=name_robot, robot_index=i, enable_randomizer=enable_randomizer)
+                 for i in range(num_robot)]
+        task = [hybrid_gait_task.HybridGaitTask(enable_cycle_sync=True,
+                                                tar_frame_steps=[1, 2, 10, 30],
+                                                ref_state_init_prob=0.9,
+                                                warmup_time=0.25)
+                for _ in range(num_robot)]
+
+        env = quadruped_gym_env.LocomotionGymEnv(robot, task)
+        env = wrapper_env.WrapperEnv(env,
+                                     episode_length_start=curriculum_episode_length,
+                                     episode_length_end=curriculum_episode_length,
+                                     curriculum_steps=30000000,
+                                     num_parallel_envs=num_parallel_envs)
     return env
 
 
@@ -181,12 +204,12 @@ def main():
 
     enable_env_rand = training_params["enable_env_randomizer"] and (
         training_params["mode"] != "test")
-    env = build_env(name_robot=training_params["robot"],
-                    motion_files=[training_params["motion_file"]],
+    env = build_env(name_task=args.task,
                     num_robot=training_params["num_robot"],
                     num_parallel_envs=num_procs,
                     mode=training_params["mode"],
-                    enable_randomizer=enable_env_rand)
+                    enable_randomizer=enable_env_rand,
+                    motion_files=[training_params["motion_file"]])
 
     agent = build_agent(env=env,
                         num_procs=num_procs,
